@@ -1,0 +1,78 @@
+WORD: /[a-zA-Z_]\w*/
+NUMBER: /\d+/
+_NEWLINE: /\r?\n/
+
+word: WORD
+number: NUMBER
+register: "$" /1[0-5]|\d/
+label: "#" WORD
+_imm: label | number | word
+
+instruction: "nop"                      -> i_nop
+           | "add"   register register  -> i_add
+           | "sub"   register register  -> i_sub
+           | "mul"   register register  -> i_mul
+           | "div"   register register  -> i_div
+           | "and"   register register  -> i_and
+           | "or"    register register  -> i_or
+           | "xor"   register register  -> i_xor
+           | "shl"   register register  -> i_shl
+           | "shr"   register register  -> i_shr
+           | "stb"   register register  -> i_stb
+           | "stw"   register register  -> i_stw
+           | "std"   register register  -> i_std
+           | "ldb"   register register  -> i_ldb
+           | "ldw"   register register  -> i_ldw
+           | "ldd"   register register  -> i_ldd
+           | "add"   _imm register      -> i_addi
+           | "sub"   _imm register      -> i_subi
+           | "mul"   _imm register      -> i_muli
+           | "div"   _imm register      -> i_divi
+           | "and"   _imm register      -> i_andi
+           | "or"    _imm register      -> i_ori
+           | "xor"   _imm register      -> i_xori
+           | "shl"   _imm register      -> i_shli
+           | "shr"   _imm register      -> i_shri
+           | "stb"   register _imm      -> i_stbi
+           | "stw"   register _imm      -> i_stwi
+           | "std"   register _imm      -> i_stdi
+           | "ldb"   _imm register      -> i_ldbi
+           | "ldw"   _imm register      -> i_ldwi
+           | "ldd"   _imm register      -> i_lddi
+           | "push"  register           -> i_push
+           | "pop"   register           -> i_pop
+           | "j"     register           -> i_j
+           | "jt"    register           -> i_jt
+           | "jf"    register           -> i_jf
+           | "b"     register           -> i_b
+           | "bt"    register           -> i_bt
+           | "bf"    register           -> i_bf
+           | "push"  _imm               -> i_pushi
+           | "j"     _imm               -> i_ji
+           | "jt"    _imm               -> i_jti
+           | "jf"    _imm               -> i_jfi
+           | "b"     _imm               -> i_bi
+           | "bt"    _imm               -> i_bti
+           | "bf"    _imm               -> i_bfi
+           | "ceq"   register register  -> i_ceq
+           | "cnq"   register register  -> i_cnq
+           | "cgt"   register register  -> i_cgt
+           | "clt"   register register  -> i_clt
+           | "mov"   _imm register      -> i_movi
+           | "ceq"   register _imm      -> i_ceqi
+           | "cnq"   register _imm      -> i_cnqi
+           | "cgt"   register _imm      -> i_cgti
+           | "clt"   register _imm      -> i_clti
+           | "mov"   register register  -> i_mov
+label_line: word ":"
+directive: ".byte"    number _imm?  -> d_byte
+         | ".word"    number _imm?  -> d_word
+         | ".dword"   number _imm?  -> d_dword
+         | ".export"  label         -> d_export
+         | ".define"  word _imm     -> d_define
+_line: instruction | label_line | directive
+
+program: _NEWLINE* [_line (_NEWLINE+ _line)* _NEWLINE*]
+
+%ignore /;[^\n]*/
+%ignore /[\t \f]+/
