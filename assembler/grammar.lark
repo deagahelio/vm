@@ -69,6 +69,7 @@ directive: ".byte"    number _imm?  -> d_byte
          | ".word"    number _imm?  -> d_word
          | ".dword"   number _imm?  -> d_dword
          | ".export"  label         -> d_export
+         | ".import"  label         -> d_export
          | ".define"  word _imm     -> d_define
 _line: instruction | label_line | directive
 

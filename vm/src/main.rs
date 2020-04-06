@@ -11,7 +11,7 @@ fn main() {
                                .short("m")
                                .takes_value(true)
                                .value_name("SIZE")
-                               .help("VM's memory size (default 128K)"))
+                               .help("VM's memory size (default 128M)"))
                           .arg(Arg::with_name("bin")
                                .long("bin")
                                .short("b")
@@ -20,7 +20,7 @@ fn main() {
                                .help("Specifies a file to be loaded into the VM's memory"))
                           .get_matches();
     
-    let mut vm = Vm::new(value_t!(matches, "memory-size", usize).unwrap_or(131072));
+    let mut vm = Vm::new(value_t!(matches, "memory-size", usize).unwrap_or(134217728));
 
     if let Some(ref bin) = matches.value_of("bin") {
         vm.load_from_file(bin).unwrap();

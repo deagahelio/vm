@@ -1,4 +1,5 @@
 import lark
+import click
 import struct
 
 INSTRUCTIONS = {
@@ -65,11 +66,9 @@ lark.Tree.__getitem__ = lambda self, index: self.children[index]
 class Transfromer(lark.Transformer):
     def __init__(self, definitions):
         self.definitions = definitions
-        print(definitions)
 
     def word(self, node):
         try:
-            print(self.definitions[node[0].value])
             return self.definitions[node[0].value]
         except KeyError:
             return node
@@ -77,16 +76,25 @@ class Transfromer(lark.Transformer):
 class Assembler:
     def __init__(self):
         self.code = bytearray()
+        self.global_symbols_def = {}
+        self.global_symbols_use = {}
+
         self.symbols_def = {}
         self.symbols_use = {}
-
+        self.to_import = []
         self.to_export = []
 
     def preprocess(self, ast):
+        self.symbols_def = {}
+        self.symbols_use = {}
+        self.to_import = []
+        self.to_export = []
         definitions = {}
         for node in ast.children:
             if node.data == "d_export":
                 self.to_export.append(node[0][0])
+            elif node.data == "d_import":
+                self.to_import.append(node[0][0])
             elif node.data == "d_define":
                 definitions[node[0][0].value] = node[1]
         return Transfromer(definitions).transform(ast)
@@ -134,8 +142,12 @@ class Assembler:
                         self.symbols_use[len(self.code)] = (node[0][0], len(self.code) - 1)
                         imm = 0xFFFFFFFF
                     self.code += struct.pack("<I", imm)
-            elif node.data == "label_line": # TODO: move to preprocess
-                self.symbols_def[node[0][0]] = len(self.code)
+            elif node.data == "label_line":
+                if node[0][0] in self.symbols_def.keys():
+                    click.echo(f"ERROR: duplicate symbol '{node[0][0]}'", err=True)
+                    continue
+                else:
+                    self.symbols_def[node[0][0]] = len(self.code)
             elif node.data in ("d_byte", "d_word", "d_dword"):
                 format = {"d_byte": "B", "d_word": "H", "d_dword": "I"}[node.data]
                 if len(node.children) == 2:
@@ -144,12 +156,19 @@ class Assembler:
                     amount = 1
                 self.code += struct.pack("<" + format, int(node[0][0])) * amount
 
-    def link(self):
+    def link(self, final=False):
+        if final:
+            self.symbols_def = self.global_symbols_def
+            self.symbols_use = self.global_symbols_use
+
         for pos_use, (symbol, pos_use_opcode) in self.symbols_use.items():
-            try:
+            if symbol in self.symbols_def:
                 pos_def = self.symbols_def[symbol]
-            except KeyError:
-                print(f"ERROR: unresolved symbol '{symbol}'")
+            elif symbol in self.to_import and not final:
+                self.global_symbols_use[pos_use] = (symbol, pos_use_opcode)
+                continue
+            else:
+                click.echo(f"ERROR: unresolved symbol '{symbol}'", err=True)
                 continue
 
             # If instruction is branch
@@ -163,24 +182,32 @@ class Assembler:
             # If instruction is jump
             else:
                 self.code[pos_use:pos_use+4] = struct.pack("<I", pos_def)
+        
+        if not final:
+            for symbol, pos_def in self.symbols_def.items():
+                if symbol in self.to_export:
+                    if symbol in self.global_symbols_def:
+                        click.echo(f"ERROR: duplicate symbol '{symbol}'", err=True)
+                        continue
+                    else:
+                        self.global_symbols_def[symbol] = pos_def
 
-if __name__ == "__main__":
+@click.command()
+@click.argument("files", type=click.File("r"), required=True, nargs=-1)
+@click.option("--output", "-o", type=click.File("wb"), required=True, help="Output binary to write to.")
+def run(files, output):
     with open("grammar.lark", "r") as f:
         parser = lark.Lark(f.read(), start="program", parser="lalr")
 
-    with open("example.asm", "r") as f:
-        ast = parser.parse(f.read())
-    
     assembler = Assembler()
-    ast = assembler.preprocess(ast)
-    assembler.assemble(ast)
-    assembler.link()
-    for byte in assembler.code:
-        print(hex(byte))
-    print(ast.pretty())
-    print(assembler.symbols_def)
-    print(assembler.symbols_use)
-    print(assembler.to_export)
+    for file in files:
+        ast = parser.parse(file.read())
+        ast = assembler.preprocess(ast)
+        assembler.assemble(ast)
+        assembler.link()
+    assembler.link(final=True)
 
-    with open("out.bin", "wb") as f:
-        f.write(assembler.code)
+    output.write(assembler.code)
+
+if __name__ == "__main__":
+    run(None, None)
