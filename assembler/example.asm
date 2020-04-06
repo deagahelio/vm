@@ -1,8 +1,6 @@
 .define count 10
 
 mov #stack $15 ; Set stack pointer
-sub 4 $15
-
 mov 1 $1 ; First number
 mov 1 $2 ; Second number
 mov 2 $4 ; Loop counter

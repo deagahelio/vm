@@ -213,13 +213,13 @@ impl Vm {
                 let a = opcode2 & 0xF;
                 match opcode2 >> 4 {
                     0x1 => { // PUSH a
-                        unwrap_or_return!(self.memory.write_u32(self.registers[15], self.registers[a as usize]), Err(Exception::ProtectionFault));
                         self.registers[15] = self.registers[15].wrapping_sub(4);
+                        unwrap_or_return!(self.memory.write_u32(self.registers[15], self.registers[a as usize]), Err(Exception::ProtectionFault));
                         2
                     },
                     0x2 => { // POP a
-                        self.registers[15] = self.registers[15].wrapping_add(4);
                         self.registers[a as usize] = unwrap_or_return!(self.memory.read_u32(self.registers[15]), Err(Exception::ProtectionFault));
+                        self.registers[15] = self.registers[15].wrapping_add(4);
                         2
                     },
                     0x3 => { // J a
@@ -286,11 +286,11 @@ impl Vm {
                 }
             },
             0x21 => { // PUSHI imm
+                self.registers[15] = self.registers[15].wrapping_sub(4);
                 unwrap_or_return!(self.memory.write_u32(
                     self.registers[15],
                     unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode))
                 ), Err(Exception::ProtectionFault));
-                self.registers[15] = self.registers[15].wrapping_sub(4);
                 5
             },
             0x23 => { // JI imm
