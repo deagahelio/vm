@@ -1,3 +1,4 @@
 vm/target
 **/*.rs.bk
 assembler/out.bin
+*.code-workspace
