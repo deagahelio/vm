@@ -243,12 +243,12 @@ impl Vm {
                         }
                     },
                     0x6 => { // B a
-                        self.ip = self.ip.wrapping_add(self.registers[a as usize]);
+                        self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
                         2
                     },
                     0x7 => { // BT a
                         if self.cmp {
-                            self.ip = self.ip.wrapping_add(self.registers[a as usize]);
+                            self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
                             0
                         } else {
                             2
@@ -256,27 +256,7 @@ impl Vm {
                     },
                     0x8 => { // BF a
                         if !self.cmp {
-                            self.ip = self.ip.wrapping_add(self.registers[a as usize]);
-                            0
-                        } else {
-                            2
-                        }
-                    },
-                    0x9 => { // BR a
-                        self.ip = self.ip.wrapping_sub(self.registers[a as usize]);
-                        2
-                    },
-                    0xA => { // BRT a
-                        if self.cmp {
-                            self.ip = self.ip.wrapping_sub(self.registers[a as usize]);
-                            0
-                        } else {
-                            2
-                        }
-                    },
-                    0xB => { // BRF a
-                        if !self.cmp {
-                            self.ip = self.ip.wrapping_sub(self.registers[a as usize]);
+                            self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
                             0
                         } else {
                             2
@@ -314,12 +294,12 @@ impl Vm {
                 }
             },
             0x26 => { // BI imm
-                self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
+                self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
                 5
             },
             0x27 => { // BTI imm
                 if self.cmp {
-                    self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
+                    self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
                     0
                 } else {
                     5
@@ -327,27 +307,7 @@ impl Vm {
             },
             0x28 => { // BFI imm
                 if !self.cmp {
-                    self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
-                    0
-                } else {
-                    5
-                }
-            },
-            0x29 => { // BRI imm
-                self.ip = self.ip.wrapping_sub(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
-                5
-            },
-            0x2A => { // BRTI imm
-                if self.cmp {
-                    self.ip = self.ip.wrapping_sub(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
-                    0
-                } else {
-                    5
-                }
-            },
-            0x2B => { // BRFI imm
-                if !self.cmp {
-                    self.ip = self.ip.wrapping_sub(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
+                    self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
                     0
                 } else {
                     5

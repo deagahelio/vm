@@ -48,9 +48,6 @@ instruction: "nop"                      -> i_nop
            | "b"     register           -> i_b
            | "bt"    register           -> i_bt
            | "bf"    register           -> i_bf
-           | "br"    register           -> i_br
-           | "brt"   register           -> i_brt
-           | "brf"   register           -> i_brf
            | "push"  _imm               -> i_pushi
            | "j"     _imm               -> i_ji
            | "jt"    _imm               -> i_jti

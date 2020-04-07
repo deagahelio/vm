@@ -42,9 +42,6 @@ INSTRUCTIONS = {
     "b":     {"operands": "r",  "opcode": b"\x20\x60"},
     "bt":    {"operands": "r",  "opcode": b"\x20\x70"},
     "bf":    {"operands": "r",  "opcode": b"\x20\x80"},
-    "br":    {"operands": "r",  "opcode": b"\x20\x90"},
-    "brt":   {"operands": "r",  "opcode": b"\x20\xA0"},
-    "brf":   {"operands": "r",  "opcode": b"\x20\xB0"},
     "pushi": {"operands": "i",  "opcode": b"\x21"},
     "ji":    {"operands": "i",  "opcode": b"\x23"},
     "jti":   {"operands": "i",  "opcode": b"\x24"},
@@ -180,12 +177,8 @@ class Assembler:
 
             if is_branch:
                 pos_def -= pos_use - 1
-                # Change instruction to reverse branch if negative offset
-                if pos_def < 0:
-                    self.code[pos_use - 1] += 3
-                    pos_def = -pos_def
 
-            self.code[pos_use:pos_use+4] = struct.pack("<I", pos_def)
+            self.code[pos_use:pos_use+4] = struct.pack("<i", pos_def)
         
         if not final:
             for symbol, pos_def in self.symbols_def.items():
