@@ -4,9 +4,10 @@ _NEWLINE: /\r?\n/
 
 word: WORD
 number: NUMBER
+hex_number: /0x[\da-fA-F]+/
 register: "$" /1[0-5]|\d/
 label: "#" WORD
-_imm: label | number | word
+_imm: label | hex_number | number | word
 
 instruction: "nop"                      -> i_nop
            | "add"   register register  -> i_add
@@ -47,6 +48,9 @@ instruction: "nop"                      -> i_nop
            | "b"     register           -> i_b
            | "bt"    register           -> i_bt
            | "bf"    register           -> i_bf
+           | "br"    register           -> i_br
+           | "brt"   register           -> i_brt
+           | "brf"   register           -> i_brf
            | "push"  _imm               -> i_pushi
            | "j"     _imm               -> i_ji
            | "jt"    _imm               -> i_jti
@@ -64,6 +68,9 @@ instruction: "nop"                      -> i_nop
            | "cgt"   register _imm      -> i_cgti
            | "clt"   register _imm      -> i_clti
            | "mov"   register register  -> i_mov
+           | "stb"   _imm _imm          -> i_stbii
+           | "stw"   _imm _imm          -> i_stwii
+           | "std"   _imm _imm          -> i_stdii
 label_line: word ":"
 directive: ".byte"    number _imm?  -> d_byte
          | ".word"    number _imm?  -> d_word

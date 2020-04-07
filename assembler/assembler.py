@@ -42,6 +42,9 @@ INSTRUCTIONS = {
     "b":     {"operands": "r",  "opcode": b"\x20\x60"},
     "bt":    {"operands": "r",  "opcode": b"\x20\x70"},
     "bf":    {"operands": "r",  "opcode": b"\x20\x80"},
+    "br":    {"operands": "r",  "opcode": b"\x20\x90"},
+    "brt":   {"operands": "r",  "opcode": b"\x20\xA0"},
+    "brf":   {"operands": "r",  "opcode": b"\x20\xB0"},
     "pushi": {"operands": "i",  "opcode": b"\x21"},
     "ji":    {"operands": "i",  "opcode": b"\x23"},
     "jti":   {"operands": "i",  "opcode": b"\x24"},
@@ -59,6 +62,9 @@ INSTRUCTIONS = {
     "cgti":  {"operands": "ri", "opcode": b"\x30\xE0"},
     "clti":  {"operands": "ri", "opcode": b"\x30\xF0"},
     "mov":   {"operands": "rr", "opcode": b"\x31"},
+    "stbii": {"operands": "ii", "opcode": b"\x32"},
+    "stwii": {"operands": "ii", "opcode": b"\x33"},
+    "stdii": {"operands": "ii", "opcode": b"\x34"},
 }
 
 lark.Tree.__getitem__ = lambda self, index: self.children[index]
@@ -99,6 +105,17 @@ class Assembler:
                 definitions[node[0][0].value] = node[1]
         return Transfromer(definitions).transform(ast)
 
+    def read_imm(self, node, is_branch=False):
+        if node.data == "number":
+            return int(node[0])
+        elif node.data == "hex_number":
+            return int(node[0], 16)
+        elif node.data == "label":
+            # Keep track of this so we can fix the address later
+            self.symbols_use[len(self.code)] = (node[0], is_branch)
+            # Set a temporary value
+            return 0xFFFFFFFF
+
     def assemble(self, ast):
         for node in ast.children:
             # If node is instruction
@@ -112,23 +129,13 @@ class Assembler:
                     self.code.append((r1 << 4) | r2)
                 elif instruction["operands"] == "ri":
                     r1 = int(node[0][0])
-                    if node[1].data == "number":
-                        imm = int(node[1][0])
-                    elif node[1].data == "label":
-                        # Keep track of this so we can fix the address later
-                        self.symbols_use[len(self.code)] = (node[1][0], len(self.code) - 2)
-                        # Set a temporary value
-                        imm = 0xFFFFFFFF
+                    imm = self.read_imm(node[1])
                     self.code[-1] = self.code[-1] | r1
                     # Store int as little endian bytes
                     self.code += struct.pack("<I", imm)
                 # Same as "ri", but reverse order
                 elif instruction["operands"] == "ir":
-                    if node[0].data == "number":
-                        imm = int(node[0][0])
-                    elif node[0].data == "label":
-                        self.symbols_use[len(self.code)] = (node[0][0], len(self.code) - 2)
-                        imm = 0xFFFFFFFF
+                    imm = self.read_imm(node[0])
                     r1 = int(node[1][0])
                     self.code[-1] = self.code[-1] | r1
                     self.code += struct.pack("<I", imm)
@@ -136,12 +143,12 @@ class Assembler:
                     r1 = int(node[0][0])
                     self.code[-1] = self.code[-1] | r1
                 elif instruction["operands"] == "i":
-                    if node[0].data == "number":
-                        imm = int(node[0][0])
-                    elif node[0].data == "label":
-                        self.symbols_use[len(self.code)] = (node[0][0], len(self.code) - 1)
-                        imm = 0xFFFFFFFF
+                    imm = self.read_imm(node[0], is_branch=node.data in ("i_bi", "i_bti", "i_bfi"))
                     self.code += struct.pack("<I", imm)
+                elif instruction["operands"] == "ii":
+                    imm1 = self.read_imm(node[0])
+                    imm2 = self.read_imm(node[1])
+                    self.code += struct.pack("<I", imm1) + struct.pack("<I", imm2)
             elif node.data == "label_line":
                 if node[0][0] in self.symbols_def.keys():
                     click.echo(f"ERROR: duplicate symbol '{node[0][0]}'", err=True)
@@ -161,27 +168,24 @@ class Assembler:
             self.symbols_def = self.global_symbols_def
             self.symbols_use = self.global_symbols_use
 
-        for pos_use, (symbol, pos_use_opcode) in self.symbols_use.items():
+        for pos_use, (symbol, is_branch) in self.symbols_use.items():
             if symbol in self.symbols_def:
                 pos_def = self.symbols_def[symbol]
             elif symbol in self.to_import and not final:
-                self.global_symbols_use[pos_use] = (symbol, pos_use_opcode)
+                self.global_symbols_use[pos_use] = (symbol, is_branch)
                 continue
             else:
                 click.echo(f"ERROR: unresolved symbol '{symbol}'", err=True)
                 continue
 
-            # If instruction is branch
-            if 0x26 <= self.code[pos_use_opcode] <= 0x28:
-                relative = pos_def - pos_use_opcode
-                # Change instruction to reverse branch if negative relative address
-                if relative < 0:
-                    self.code[pos_use_opcode] += 3
-                    relative = -relative
-                self.code[pos_use:pos_use+4] = struct.pack("<I", relative)
-            # If instruction is jump
-            else:
-                self.code[pos_use:pos_use+4] = struct.pack("<I", pos_def)
+            if is_branch:
+                pos_def -= pos_use - 1
+                # Change instruction to reverse branch if negative offset
+                if pos_def < 0:
+                    self.code[pos_use - 1] += 3
+                    pos_def = -pos_def
+
+            self.code[pos_use:pos_use+4] = struct.pack("<I", pos_def)
         
         if not final:
             for symbol, pos_def in self.symbols_def.items():

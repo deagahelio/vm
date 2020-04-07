@@ -17,6 +17,8 @@ loop:
     ceq $4 count
     bf #loop
 
+stb 0xFF 0x100000
+
 hang:
     j #hang ; Infinte loop
 

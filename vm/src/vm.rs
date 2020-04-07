@@ -410,7 +410,25 @@ impl Vm {
                 let (a, b) = (ab >> 4, ab & 0xF);
                 self.registers[b as usize] = self.registers[a as usize];
                 2
-            }
+            },
+            0x32 => { // STBII imm imm
+                let imm1 = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
+                let imm2 = unwrap_or_return!(self.memory.read_u32(self.ip + 5), Err(Exception::InvalidOpcode));
+                unwrap_or_return!(self.memory.write_u8(imm2, imm1 as u8), Err(Exception::ProtectionFault));
+                9
+            },
+            0x33 => { // STWII imm imm
+                let imm1 = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
+                let imm2 = unwrap_or_return!(self.memory.read_u32(self.ip + 5), Err(Exception::InvalidOpcode));
+                unwrap_or_return!(self.memory.write_u16(imm2, imm1 as u16), Err(Exception::ProtectionFault));
+                9
+            },
+            0x34 => { // STDII imm imm
+                let imm1 = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
+                let imm2 = unwrap_or_return!(self.memory.read_u32(self.ip + 5), Err(Exception::InvalidOpcode));
+                unwrap_or_return!(self.memory.write_u32(imm2, imm1), Err(Exception::ProtectionFault));
+                9
+            },
             _ => return Err(Exception::InvalidOpcode),
         };
 
