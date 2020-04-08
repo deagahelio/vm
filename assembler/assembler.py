@@ -42,6 +42,7 @@ INSTRUCTIONS = {
     "b":     {"operands": "r",  "opcode": b"\x20\x60"},
     "bt":    {"operands": "r",  "opcode": b"\x20\x70"},
     "bf":    {"operands": "r",  "opcode": b"\x20\x80"},
+    "call":  {"operands": "r",  "opcode": b"\x20\x90"},
     "pushi": {"operands": "i",  "opcode": b"\x21"},
     "ji":    {"operands": "i",  "opcode": b"\x23"},
     "jti":   {"operands": "i",  "opcode": b"\x24"},
@@ -49,6 +50,7 @@ INSTRUCTIONS = {
     "bi":    {"operands": "i",  "opcode": b"\x26"},
     "bti":   {"operands": "i",  "opcode": b"\x27"},
     "bfi":   {"operands": "i",  "opcode": b"\x28"},
+    "calli": {"operands": "i",  "opcode": b"\x29"},
     "ceq":   {"operands": "rr", "opcode": b"\x2C"},
     "cnq":   {"operands": "rr", "opcode": b"\x2D"},
     "cgt":   {"operands": "rr", "opcode": b"\x2E"},
@@ -62,6 +64,7 @@ INSTRUCTIONS = {
     "stbii": {"operands": "ii", "opcode": b"\x32"},
     "stwii": {"operands": "ii", "opcode": b"\x33"},
     "stdii": {"operands": "ii", "opcode": b"\x34"},
+    "ret":   {"operands": "",   "opcode": b"\x35"},
 }
 
 lark.Tree.__getitem__ = lambda self, index: self.children[index]

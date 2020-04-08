@@ -122,19 +122,19 @@ impl Vm {
             0x0D => { // LDB b a
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
                 let (a, b) = (ab >> 4, ab & 0xF);
-                self.registers[a as usize] = unwrap_or_return!(self.memory.read_u8(self.registers[b as usize]), Err(Exception::ProtectionFault)) as u32;
+                self.registers[b as usize] = unwrap_or_return!(self.memory.read_u8(self.registers[a as usize]), Err(Exception::ProtectionFault)) as u32;
                 2
             },
             0x0E => { // LDW b a
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
                 let (a, b) = (ab >> 4, ab & 0xF);
-                self.registers[a as usize] = unwrap_or_return!(self.memory.read_u16(self.registers[b as usize]), Err(Exception::ProtectionFault)) as u32;
+                self.registers[b as usize] = unwrap_or_return!(self.memory.read_u16(self.registers[a as usize]), Err(Exception::ProtectionFault)) as u32;
                 2
             },
             0x0F => { // LDD b a
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
                 let (a, b) = (ab >> 4, ab & 0xF);
-                self.registers[a as usize] = unwrap_or_return!(self.memory.read_u32(self.registers[b as usize]), Err(Exception::ProtectionFault));
+                self.registers[b as usize] = unwrap_or_return!(self.memory.read_u32(self.registers[a as usize]), Err(Exception::ProtectionFault));
                 2
             },
             0x10 => {
@@ -262,6 +262,12 @@ impl Vm {
                             2
                         }
                     },
+                    0x9 => { // CALL a
+                        self.registers[15] = self.registers[15].wrapping_sub(4);
+                        unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip), Err(Exception::ProtectionFault));
+                        self.ip = self.registers[a as usize];
+                        0
+                    },
                     _ => return Err(Exception::InvalidOpcode),
                 }
             },
@@ -312,6 +318,12 @@ impl Vm {
                 } else {
                     5
                 }
+            },
+            0x29 => { // CALLI imm
+                self.registers[15] = self.registers[15].wrapping_sub(4);
+                unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip), Err(Exception::ProtectionFault));
+                self.ip = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
+                5
             },
             0x2C => { // CEQ a b
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
@@ -388,6 +400,11 @@ impl Vm {
                 let imm2 = unwrap_or_return!(self.memory.read_u32(self.ip + 5), Err(Exception::InvalidOpcode));
                 unwrap_or_return!(self.memory.write_u32(imm2, imm1), Err(Exception::ProtectionFault));
                 9
+            },
+            0x35 => { // RET
+                self.ip = unwrap_or_return!(self.memory.read_u32(self.registers[15]), Err(Exception::ProtectionFault));
+                self.registers[15] = self.registers[15].wrapping_add(4);
+                1
             },
             _ => return Err(Exception::InvalidOpcode),
         };

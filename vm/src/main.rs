@@ -51,4 +51,6 @@ fn main() {
 
         window.update_with_buffer(&buffer, width, height).unwrap();
     }
+
+    println!("mem:{:?}", &vm.memory.bytes[..1000]);
 }
