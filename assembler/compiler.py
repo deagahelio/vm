@@ -2,6 +2,12 @@ import pycparser
 from pycparser import c_ast
 import click
 
+class CompileError(Exception):
+    def __init__(self, message, node):
+        super().__init__(message)
+        self.message = message
+        self.node = node
+
 class Compiler:
     def __init__(self, comment=False):
         self.code = ""
@@ -43,8 +49,7 @@ class Compiler:
             if isinstance(node, c_ast.FuncDef):
                 self.generate_function(node)
             else:
-                click.echo(f"ERROR: unknown node {node.__class__.__name__}", err=True)
-                exit(1)
+                raise CompileError(f"unknown node {node.__class__.__name__}", node)
     
     def generate_function(self, node):
         self.funcs.append(node.decl)
@@ -91,27 +96,23 @@ class Compiler:
                 self.code += "; assignment\n"
             if node.op == "=":
                 if not Compiler.is_lvalue(node.lvalue):
-                    click.echo(f"ERROR: expr not lvalue {node.lvalue} ({node.coord})", err=True)
-                    exit(1)
+                    raise CompileError(f"expr not lvalue {node.lvalue}", node)
                 self.generate_expression(node.lvalue, register=register)
                 type = self.generate_expression(node.rvalue, register=register+2)
                 self.code += f"std ${register+2} ${register+1}\nmov ${register+2} ${register}\n"
                 return type
             else:
-                click.echo(f"ERROR: unknown assignment operator {node.op} ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"unknown assignment operator {node.op}", node)
         elif isinstance(node, c_ast.ArrayRef):
             if self.comment:
                 self.code += "; array ref\n"
             if not Compiler.is_lvalue(node.name):
-                click.echo(f"ERROR: expr not lvalue {node.name} ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"expr not lvalue {node.name}", node)
             type = self.generate_expression(node.name, register=register)
             self.generate_expression(node.subscript, register=register+2)
             self.code += f"add ${register+2} ${register+1}\nldd ${register+1} ${register}\n"
             if type[-1] != "*":
-                click.echo(f"ERROR: can't use array ref on non-pointer value ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"can't use array ref on non-pointer value", node)
             return type[:-1]
         elif isinstance(node, c_ast.For):
             if self.comment:
@@ -146,14 +147,12 @@ class Compiler:
                 self.code += "; unary op\n"
             if node.op == "p++":
                 if not Compiler.is_lvalue(node.expr):
-                    click.echo(f"ERROR: expr not lvalue {node.expr} ({node.coord})", err=True)
-                    exit(1)
+                    raise CompileError(f"expr not lvalue {node.expr}", node)
                 type = self.generate_expression(node.expr, register=register)
                 self.code += f"add 1 ${register}\nstd ${register} ${register+1}\n"
                 return type
             else:
-                click.echo(f"ERROR: unknown unary operator {node.op} ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"unknown unary operator {node.op}", node)
         elif isinstance(node, c_ast.Constant):
             if self.comment:
                 self.code += "; constant\n"
@@ -164,8 +163,7 @@ class Compiler:
                     self.code += f"mov {node.value} ${register}\n"
                 return "int"
             else:
-                click.echo(f"ERROR: unknown constant type {node.type} ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"unknown constant type {node.type}", node)
         elif isinstance(node, c_ast.ID):
             if self.comment:
                 self.code += f"; load variable {node.name}\n"
@@ -173,14 +171,12 @@ class Compiler:
             if offset != None:
                 self.code += f"mov $12 ${register+1}\nsub {-offset} ${register+1}\nldd ${register+1} ${register}\n"
             else:
-                click.echo(f"ERROR: unknown variable {node.name} ({node.coord})", err=True)
-                exit(1)
+                raise CompileError(f"unknown variable {node.name}", node)
             return type
         elif isinstance(node, c_ast.EmptyStatement):
             pass
         else:
-            click.echo(f"ERROR: unknown node {node.__class__.__name__} ({node.coord})", err=True)
-            exit(1)
+            raise CompileError(f"unknown node {node.__class__.__name__}", node)
 
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)
@@ -192,7 +188,11 @@ def run(files, comment, show_ast):
         ast = pycparser.parse_file(file)
         if show_ast:
             ast.show(showcoord=True)
-        compiler.compile(ast)
+        try:
+            compiler.compile(ast)
+        except CompileError as e:
+            click.echo(f"ERROR: {e.message} ({e.node.coord})", err=True)
+            exit(1)
         with open(file + ".out", "w") as f:
             f.write(compiler.code)
 
