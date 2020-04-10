@@ -98,8 +98,9 @@ class Compiler:
                 if not Compiler.is_lvalue(node.lvalue):
                     raise CompileError(f"expr not lvalue {node.lvalue}", node)
                 self.generate_expression(node.lvalue, register=register)
-                type = self.generate_expression(node.rvalue, register=register+2)
-                self.code += f"std ${register+2} ${register+1}\nmov ${register+2} ${register}\n"
+                self.code += f"push ${register+1}\n"
+                type = self.generate_expression(node.rvalue, register=register)
+                self.code += f"pop ${register+1}\nstd ${register} ${register+1}\n"
                 return type
             else:
                 raise CompileError(f"unknown assignment operator {node.op}", node)
@@ -109,10 +110,12 @@ class Compiler:
             if not Compiler.is_lvalue(node.name):
                 raise CompileError(f"expr not lvalue {node.name}", node)
             type = self.generate_expression(node.name, register=register)
-            self.generate_expression(node.subscript, register=register+2)
-            self.code += f"add ${register+2} ${register+1}\nldd ${register+1} ${register}\n"
             if type[-1] != "*":
                 raise CompileError(f"can't use array ref on non-pointer value", node)
+            self.code += f"push ${register+1}\n"
+            self.generate_expression(node.subscript, register=register)
+            self.code += f"mul {self.type_size(type[:-1])} ${register}\nmov $13 ${register}\n"
+            self.code += f"pop ${register+1}\nadd ${register} ${register+1}\nldd ${register+1} ${register}\n"
             return type[:-1]
         elif isinstance(node, c_ast.For):
             if self.comment:
@@ -130,11 +133,13 @@ class Compiler:
             self.vars.pop()
         elif isinstance(node, c_ast.BinaryOp):
             if self.comment:
-                self.code += "; binary op\n; left expr\n"
-            type = self.generate_expression(node.left, register=register)
+                self.code += "; binary op\n; right expr\n"
+            self.generate_expression(node.right, register=register)
+            self.code += f"push ${register}\n"
             if self.comment:
-                self.code += "; right expr\n"
-            self.generate_expression(node.right, register=register+1)
+                self.code += "; left expr\n"
+            type = self.generate_expression(node.left, register=register)
+            self.code += f"pop ${register+1}\n"
             self.code += {
                 "+": f"add ${register+1} ${register}\n",
                 "-": f"sub ${register+1} ${register}\n",
@@ -185,7 +190,7 @@ class Compiler:
 def run(files, comment, show_ast):
     compiler = Compiler(comment=comment)
     for file in files:
-        ast = pycparser.parse_file(file)
+        ast = pycparser.parse_file(file, use_cpp=True)
         if show_ast:
             ast.show(showcoord=True)
         try:

@@ -16,11 +16,15 @@ impl Memory {
     }
 
     pub fn read_u16(&self, address: u32) -> Option<u16> {
-        self.bytes.get(address as usize..address as usize + 2).map(|bytes| u16::from_le_bytes(bytes.try_into().unwrap()))
+        Some(u16::from_le_bytes([self.read_u8(address)?,
+                                 self.read_u8(address + 1)?]))
     }
 
     pub fn read_u32(&self, address: u32) -> Option<u32> {
-        self.bytes.get(address as usize..address as usize + 4).map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+        Some(u32::from_le_bytes([self.read_u8(address)?,
+                                 self.read_u8(address + 1)?,
+                                 self.read_u8(address + 2)?,
+                                 self.read_u8(address + 3)?]))
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
@@ -28,15 +32,17 @@ impl Memory {
     }
 
     pub fn write_u16(&mut self, address: u32, value: u16) -> Option<u16> {
-        self.bytes.get_mut(address as usize..address as usize + 2).map(|old_bytes| 
-            u16::from_le_bytes(std::mem::replace(old_bytes.try_into().unwrap(), u16::to_le_bytes(value)))
-        )
+        let value = u16::to_le_bytes(value);
+        Some(u16::from_le_bytes([self.write_u8(address, value[0])?,
+                                 self.write_u8(address + 1, value[1])?]))
     }
 
     pub fn write_u32(&mut self, address: u32, value: u32) -> Option<u32> {
-        self.bytes.get_mut(address as usize..address as usize + 4).map(|old_bytes| 
-            u32::from_le_bytes(std::mem::replace(old_bytes.try_into().unwrap(), u32::to_le_bytes(value)))
-        )
+        let value = u32::to_le_bytes(value);
+        Some(u32::from_le_bytes([self.write_u8(address, value[0])?,
+                                 self.write_u8(address + 1, value[1])?,
+                                 self.write_u8(address + 2, value[2])?,
+                                 self.write_u8(address + 3, value[3])?]))
     }
 }
 
