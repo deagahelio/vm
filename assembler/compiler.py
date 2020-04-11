@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import pycparser
 from pycparser import c_ast
 import click
