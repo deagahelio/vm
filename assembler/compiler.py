@@ -84,18 +84,40 @@ class Compiler:
         elif isinstance(node, c_ast.Decl):
             self.code += f".export #{node.name}\n{node.name}:\n"
             if isinstance(node.type, c_ast.TypeDecl):
-                if node.init != None:
-                    if isinstance(node.init, c_ast.Constant):
-                        value = node.init.value
-                    else:
-                        raise CompileError(f"invalid initializer type {node.init.__class__.__name__}", node)
                 type = self.type_string(node.type)
                 directive = {
                     1: "byte",
                     2: "word",
                     4: "dword",
                 }[self.type_size(type)]
+                if node.init != None:
+                    if isinstance(node.init, c_ast.Constant):
+                        value = node.init.value
+                    else:
+                        raise CompileError(f"invalid initializer type {node.init.__class__.__name__}", node)
                 self.code += f".{directive} {value}\n"
+                self.vars[0][node.name] = (-1, type)
+            elif isinstance(node.type, c_ast.ArrayDecl):
+                type = self.type_string(node.type)
+                directive = {
+                    1: "byte",
+                    2: "word",
+                    4: "dword",
+                }[self.type_size(type)]
+                if isinstance(node.type.dim, c_ast.Constant):
+                    size = int(node.type.dim.value)
+                else:
+                    raise CompileError(f"invalid array dim type {node.type.dim.__class__.__name__}", node)
+                if node.init != None:
+                    elems = node.init.exprs[:size]
+                    for elem in elems:
+                        if isinstance(elem, c_ast.Constant):
+                            self.code += f".{directive} {elem.value}\n"
+                        else:
+                            raise CompileError(f"invalid initializer type {elem.__class__.__name__}", node)
+                    size -= len(elems)
+                if size > 0:
+                    self.code += f".{directive} 0 {size}\n"
                 self.vars[0][node.name] = (-1, type)
             else:
                 raise CompileError(f"unknown decl type {node.type.__class__.__name__}", node)
