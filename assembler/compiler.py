@@ -23,7 +23,7 @@ class Compiler:
 
     @staticmethod
     def is_lvalue(node):
-        return isinstance(node, (c_ast.ID, c_ast.ArrayRef))
+        return isinstance(node, (c_ast.ID, c_ast.ArrayRef)) or (isinstance(node, c_ast.UnaryOp) and node.op == "*")
     
     @staticmethod
     def type_size(type):
@@ -158,8 +158,22 @@ class Compiler:
                 type = self.generate_expression(node.expr, register=register)
                 self.code += f"add 1 ${register}\nstd ${register} ${register+1}\n"
                 return type
+            elif node.op == "*":
+                type = self.generate_expression(node.expr, register=register)
+                if type[-1] != "*":
+                    raise CompileError("can't dereference non-pointer value", node)
+                self.code += f"mov ${register} ${register+1}\nldd ${register+1} ${register}\n"
+                return type[:-1]
             else:
                 raise CompileError(f"unknown unary operator {node.op}", node)
+        elif isinstance(node, c_ast.Cast):
+            if self.comment:
+                self.code += "; cast\n"
+            self.generate_expression(node.expr, register=register)
+            type = node.to_type.type.type.type.names[0]
+            if isinstance(node.to_type.type, c_ast.PtrDecl):
+                type += "*"
+            return type
         elif isinstance(node, c_ast.Constant):
             if self.comment:
                 self.code += "; constant\n"
