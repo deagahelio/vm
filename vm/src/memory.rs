@@ -1,13 +1,13 @@
-use std::convert::TryInto;
-
 pub struct Memory {
     pub bytes: Vec<u8>,
+    pub framebuffer: Vec<u32>,
 }
 
 impl Memory {
     pub fn new(size: usize) -> Self {
         Self {
             bytes: vec![0; size],
+            framebuffer: vec![0; 0x800000],
         }
     }
 
@@ -28,6 +28,14 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
+        if (0x100000..0x1f00000).contains(&address) {
+            let offset = address as usize - 0x100000;
+            let mask = !(0xFF << (16 - (offset % 3 * 8)));
+            let value = (value as u32) << (16 - (offset % 3 * 8));
+
+            let pixel = &mut self.framebuffer[offset / 3];
+            *pixel = (*pixel & mask) | value;
+        }
         self.bytes.get_mut(address as usize).map(|old_value| std::mem::replace(old_value, value))
     }
 
