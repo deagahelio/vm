@@ -54,7 +54,7 @@ class Compiler:
     def generate_function(self, node):
         self.funcs.append(node.decl)
         self.sp_offset = 0
-        self.code += f".export #func_{node.decl.name}\nfunc_{node.decl.name}:\npush $12\nmov $15 $12\n"
+        self.code += f".export #{node.decl.name}\n{node.decl.name}:\npush $12\nmov $15 $12\n"
         self.generate_expression(node.body)
         if node.decl.name == "main":
             if self.comment:
@@ -124,12 +124,12 @@ class Compiler:
             id = self.unique_id
             for decl in node.init:
                 self.generate_expression(decl, register=register)
-            self.code += f"loop_{id}:\n"
+            self.code += f"_for{id}:\n"
             self.generate_expression(node.cond, register=register)
-            self.code += f"bf #loop_{id}_end\n"
+            self.code += f"bf #_for{id}end\n"
             self.generate_expression(node.stmt, register=register)
             self.generate_expression(node.next, register=register)
-            self.code += f"b #loop_{id}\nloop_{id}_end:\n"
+            self.code += f"b #_for{id}\n_for{id}end:\n"
             self.vars.pop()
         elif isinstance(node, c_ast.BinaryOp):
             if self.comment:
