@@ -1,3 +1,5 @@
+int foo = 1;
+
 int main()
 {
     int numbers[10];

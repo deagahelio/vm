@@ -33,6 +33,27 @@ class Compiler:
             return {
                 "int": 4,
             }[type]
+    
+    @staticmethod
+    def type_string(node):
+        if isinstance(node, c_ast.TypeDecl):
+            if isinstance(node.type, c_ast.IdentifierType):
+                if len(node.type.names) == 1:
+                    return node.type.names[0]
+                else:
+                    raise CompileError(f"too many type names {node.type.names}", node)
+            else:
+                raise CompileError(f"unknown type node {node.__class__.__name__}", node)
+        elif isinstance(node, c_ast.ArrayDecl):
+            if node.dim_quals != []:
+                raise CompileError(f"unknown qualifiers {node.dim_quals}", node)
+            return Compiler.type_string(node.type) + "*"
+        elif isinstance(node, c_ast.PtrDecl):
+            if node.quals != []:
+                raise CompileError(f"unknown qualifiers {node.quals}", node)
+            return Compiler.type_string(node.type) + "*"
+        else:
+            raise CompileError(f"unknown type node {node.__class__.__name__}", node)
 
     @property
     def unique_id(self):
@@ -48,20 +69,38 @@ class Compiler:
     def compile(self, ast):
         self.code = ""
         for node in ast.ext:
-            if isinstance(node, c_ast.FuncDef):
-                self.generate_function(node)
-            else:
-                raise CompileError(f"unknown node {node.__class__.__name__}", node)
+            self.generate_decl(node)
     
-    def generate_function(self, node):
-        self.funcs.append(node.decl)
-        self.sp_offset = 0
-        self.code += f".export #{node.decl.name}\n{node.decl.name}:\npush $12\nmov $15 $12\n"
-        self.generate_expression(node.body)
-        if node.decl.name == "main":
-            if self.comment:
-                self.code += "; default main return\n"
-            self.code += "mov $0 $1\nmov $12 $15\npop $12\nret\n"
+    def generate_decl(self, node):
+        if isinstance(node, c_ast.FuncDef):
+            self.funcs.append(node.decl)
+            self.sp_offset = 0
+            self.code += f".export #{node.decl.name}\n{node.decl.name}:\npush $12\nmov $15 $12\n"
+            self.generate_expression(node.body)
+            if node.decl.name == "main":
+                if self.comment:
+                    self.code += "; default main return\n"
+                self.code += "mov $0 $1\nmov $12 $15\npop $12\nret\n"
+        elif isinstance(node, c_ast.Decl):
+            self.code += f".export #{node.name}\n{node.name}:\n"
+            if isinstance(node.type, c_ast.TypeDecl):
+                if node.init != None:
+                    if isinstance(node.init, c_ast.Constant):
+                        value = node.init.value
+                    else:
+                        raise CompileError(f"invalid initializer type {node.init.__class__.__name__}", node)
+                type = self.type_string(node.type)
+                directive = {
+                    1: "byte",
+                    2: "word",
+                    4: "dword",
+                }[self.type_size(type)]
+                self.code += f".{directive} {value}\n"
+                self.vars[0][node.name] = (-1, type)
+            else:
+                raise CompileError(f"unknown decl type {node.type.__class__.__name__}", node)
+        else:
+            raise CompileError(f"unknown node {node.__class__.__name__}", node)
     
     def generate_expression(self, node, register=1):
         if isinstance(node, c_ast.Compound):
@@ -85,19 +124,21 @@ class Compiler:
                     self.generate_expression(node.init, register=register)
                 self.code += f"push ${register}\n"
                 self.sp_offset -= 4
-                self.vars[-1][node.name] = (self.sp_offset, node.type.type.names[0])
+                self.vars[-1][node.name] = (self.sp_offset, self.type_string(node.type))
             elif isinstance(node.type, c_ast.ArrayDecl):
                 if self.comment:
                     self.code += f"; variable (array) {node.name}\n"
                 size = int(node.type.dim.value)
                 self.code += "push $0\n" * size
                 self.sp_offset -= 4 * size
-                self.vars[-1][node.name] = (self.sp_offset, node.type.type.type.names[0] + "*")
+                self.vars[-1][node.name] = (self.sp_offset, self.type_string(node.type))
+            else:
+                raise CompileError(f"unknown decl type {node.__class__.__name__}", node)
         elif isinstance(node, c_ast.Assignment):
             if self.comment:
                 self.code += "; assignment\n"
             if node.op == "=":
-                if not Compiler.is_lvalue(node.lvalue):
+                if not self.is_lvalue(node.lvalue):
                     raise CompileError(f"expr not lvalue {node.lvalue}", node)
                 self.generate_expression(node.lvalue, register=register)
                 self.code += f"push ${register+1}\n"
@@ -109,7 +150,7 @@ class Compiler:
         elif isinstance(node, c_ast.ArrayRef):
             if self.comment:
                 self.code += "; array ref\n"
-            if not Compiler.is_lvalue(node.name):
+            if not self.is_lvalue(node.name):
                 raise CompileError(f"expr not lvalue {node.name}", node)
             type = self.generate_expression(node.name, register=register)
             if type[-1] != "*":
@@ -153,7 +194,7 @@ class Compiler:
             if self.comment:
                 self.code += "; unary op\n"
             if node.op == "p++":
-                if not Compiler.is_lvalue(node.expr):
+                if not self.is_lvalue(node.expr):
                     raise CompileError(f"expr not lvalue {node.expr}", node)
                 type = self.generate_expression(node.expr, register=register)
                 self.code += f"add 1 ${register}\nstd ${register} ${register+1}\n"
@@ -188,9 +229,13 @@ class Compiler:
         elif isinstance(node, c_ast.ID):
             if self.comment:
                 self.code += f"; load variable {node.name}\n"
-            (offset, type) = self.get_var(node.name)
-            if offset != None:
-                self.code += f"mov $12 ${register+1}\nsub {-offset} ${register+1}\nldd ${register+1} ${register}\n"
+            var = self.get_var(node.name)
+            if var != None:
+                (offset, type) = var
+                if offset == -1:
+                    self.code += f"mov #{node.name} ${register+1}\nldd ${register+1} ${register}\n"
+                else:
+                    self.code += f"mov $12 ${register+1}\nsub {-offset} ${register+1}\nldd ${register+1} ${register}\n"
             else:
                 raise CompileError(f"unknown variable {node.name}", node)
             return type
