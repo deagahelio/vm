@@ -249,6 +249,9 @@ class Compiler:
             self.code += {
                 "+": f"add ${register+1} ${register}\n",
                 "-": f"sub ${register+1} ${register}\n",
+                "*": f"mul ${register+1} ${register}\nmov $13 ${register}\n",
+                "/": f"div ${register+1} ${register}\nmov $14 ${register}\n",
+                "%": f"div ${register+1} ${register}\nmov $13 ${register}\n",
                 "<": f"clt ${register} ${register+1}\n",
                 ">": f"cgt ${register} ${register+1}\n",
             }[node.op]
