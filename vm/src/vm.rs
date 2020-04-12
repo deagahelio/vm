@@ -1,6 +1,7 @@
 use crate::memory::Memory;
 use std::fs::File;
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 macro_rules! unwrap_or_return {
     ( $e:expr, $f:expr ) => {
@@ -25,9 +26,9 @@ pub struct Vm {
 }
 
 impl Vm {
-    pub fn new(memory_size: usize) -> Self {
+    pub fn new(memory_size: usize, framebuffer: Option<Arc<Mutex<Vec<u32>>>>) -> Self {
         Self {
-            memory: Memory::new(memory_size),
+            memory: Memory::new(memory_size, framebuffer),
             registers: [0; 16],
             ip: 0,
             cmp: false,
@@ -410,6 +411,7 @@ impl Vm {
         };
 
         self.registers[0] = 0;
+        self.memory.try_write_framebuffer();
         Ok(())
     }
 }

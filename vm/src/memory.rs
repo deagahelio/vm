@@ -1,13 +1,31 @@
+use std::sync::{Arc, Mutex};
+
 pub struct Memory {
     pub bytes: Vec<u8>,
-    pub framebuffer: Vec<u32>,
+    pub framebuffer: Option<Arc<Mutex<Vec<u32>>>>,
+    pub framebuffer_queue: Vec<(u32, u8)>
 }
 
 impl Memory {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: usize, framebuffer: Option<Arc<Mutex<Vec<u32>>>>) -> Self {
         Self {
             bytes: vec![0; size],
-            framebuffer: vec![0; 0x800000],
+            framebuffer,
+            framebuffer_queue: vec![],
+        }
+    }
+
+    pub fn try_write_framebuffer(&mut self) {
+        if let Ok(ref mut framebuffer) = self.framebuffer.as_ref().unwrap().try_lock() {
+            for (address, value) in &self.framebuffer_queue {
+                let offset = *address as usize - 0x100000;
+                let mask = !(0xFF << (16 - (offset % 3 * 8)));
+                let value = (*value as u32) << (16 - (offset % 3 * 8));
+
+                let pixel = &mut framebuffer[offset / 3];
+                *pixel = (*pixel & mask) | value;
+            }
+            self.framebuffer_queue.clear();
         }
     }
 
@@ -28,13 +46,8 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
-        if (0x100000..0x1f00000).contains(&address) {
-            let offset = address as usize - 0x100000;
-            let mask = !(0xFF << (16 - (offset % 3 * 8)));
-            let value = (value as u32) << (16 - (offset % 3 * 8));
-
-            let pixel = &mut self.framebuffer[offset / 3];
-            *pixel = (*pixel & mask) | value;
+        if self.framebuffer.is_some() && (0x100000..0x1f00000).contains(&address) {
+            self.framebuffer_queue.push((address, value));
         }
         self.bytes.get_mut(address as usize).map(|old_value| std::mem::replace(old_value, value))
     }
@@ -60,7 +73,7 @@ mod tests {
 
     #[test]
     fn read_write() {
-        let mut mem = Memory::new(16);
+        let mut mem = Memory::new(16, None);
 
         assert_eq!(mem.write_u8(2, 0x12), Some(0));
         assert_eq!(mem.write_u8(1, 0x34), Some(0));
