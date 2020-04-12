@@ -41,19 +41,19 @@ class Compiler:
                 if len(node.type.names) == 1:
                     return node.type.names[0]
                 else:
-                    raise CompileError(f"too many type names {node.type.names}", node)
+                    raise CompileError(f"too many type names", node)
             else:
-                raise CompileError(f"unknown type node {node.__class__.__name__}", node)
+                raise CompileError(f"invalid type node `{node.__class__.__name__}`", node)
         elif isinstance(node, c_ast.ArrayDecl):
             if node.dim_quals != []:
-                raise CompileError(f"unknown qualifiers {node.dim_quals}", node)
+                raise CompileError(f"invalid qualifier", node)
             return Compiler.type_string(node.type) + "*"
         elif isinstance(node, c_ast.PtrDecl):
             if node.quals != []:
-                raise CompileError(f"unknown qualifiers {node.quals}", node)
+                raise CompileError(f"invalid qualifier", node)
             return Compiler.type_string(node.type) + "*"
         else:
-            raise CompileError(f"unknown type node {node.__class__.__name__}", node)
+            raise CompileError(f"invalid type node `{node.__class__.__name__}`", node)
 
     @property
     def unique_id(self):
@@ -105,7 +105,7 @@ class Compiler:
                     if isinstance(node.init, c_ast.Constant):
                         value = node.init.value
                     else:
-                        raise CompileError(f"invalid initializer type {node.init.__class__.__name__}", node)
+                        raise CompileError(f"invalid global initializer type `{node.init.__class__.__name__}`", node)
 
                 self.code += f".{directive} {value}\n"
                 self.vars[0][node.name] = (-1, type) # -1 since it's a global variable and not stored in the stack
@@ -120,7 +120,7 @@ class Compiler:
                 if isinstance(node.type.dim, c_ast.Constant):
                     size = int(node.type.dim.value)
                 else:
-                    raise CompileError(f"invalid array dim type {node.type.dim.__class__.__name__}", node)
+                    raise CompileError(f"invalid global array dim type `{node.type.dim.__class__.__name__}`", node)
 
                 if node.init != None:
                     # Cut initializer list if it exceeds array size
@@ -129,7 +129,7 @@ class Compiler:
                         if isinstance(elem, c_ast.Constant):
                             self.code += f".{directive} {elem.value}\n"
                         else:
-                            raise CompileError(f"invalid initializer type {elem.__class__.__name__}", node)
+                            raise CompileError(f"invalid global array initializer type `{elem.__class__.__name__}`", node)
                     size -= len(elems)
 
                 if size > 0:
@@ -137,9 +137,9 @@ class Compiler:
 
                 self.vars[0][node.name] = (-1, type)
             else:
-                raise CompileError(f"unknown decl type {node.type.__class__.__name__}", node)
+                raise CompileError(f"invalid global declaration type `{node.type.__class__.__name__}`", node)
         else:
-            raise CompileError(f"unknown node {node.__class__.__name__}", node)
+            raise CompileError(f"invalid external declaration `{node.__class__.__name__}`", node)
     
     def generate_expression(self, node, register=1):
         # This function is recursive
@@ -185,14 +185,14 @@ class Compiler:
                 self.sp_offset -= 4 * size
                 self.vars[-1][node.name] = (self.sp_offset, self.type_string(node.type))
             else:
-                raise CompileError(f"unknown decl type {node.__class__.__name__}", node)
+                raise CompileError(f"unknown declaration type `{node.__class__.__name__}`", node)
         elif isinstance(node, c_ast.Assignment):
             if self.comment:
                 self.code += "; assignment\n"
 
             if node.op == "=":
                 if not self.is_lvalue(node.lvalue):
-                    raise CompileError(f"expr not lvalue {node.lvalue}", node)
+                    raise CompileError(f"invalid lvalue", node)
 
                 self.generate_expression(node.lvalue, register=register)
                 self.code += f"push ${register+1}\n"
@@ -200,17 +200,17 @@ class Compiler:
                 self.code += f"pop ${register+1}\nstd ${register} ${register+1}\n"
                 return type
             else:
-                raise CompileError(f"unknown assignment operator {node.op}", node)
+                raise CompileError(f"invalid assignment operator `{node.op}`", node)
         elif isinstance(node, c_ast.ArrayRef):
             if self.comment:
                 self.code += "; array ref\n"
 
             if not self.is_lvalue(node.name):
-                raise CompileError(f"expr not lvalue {node.name}", node)
+                raise CompileError(f"invalid lvalue", node)
 
             type = self.generate_expression(node.name, register=register)
             if type[-1] != "*":
-                raise CompileError(f"can't use array ref on non-pointer value", node)
+                raise CompileError(f"can't index non-pointer value", node)
 
             self.code += f"push ${register+1}\n"
             self.generate_expression(node.subscript, register=register)
@@ -262,7 +262,7 @@ class Compiler:
 
             if node.op == "p++":
                 if not self.is_lvalue(node.expr):
-                    raise CompileError(f"expr not lvalue {node.expr}", node)
+                    raise CompileError(f"invalid lvalue", node)
 
                 type = self.generate_expression(node.expr, register=register)
                 self.code += f"add 1 ${register}\nstd ${register} ${register+1}\n"
@@ -274,7 +274,7 @@ class Compiler:
                 self.code += f"mov ${register} ${register+1}\nldd ${register+1} ${register}\n"
                 return type[:-1]
             else:
-                raise CompileError(f"unknown unary operator {node.op}", node)
+                raise CompileError(f"invalid unary operator `{node.op}`", node)
         elif isinstance(node, c_ast.Cast):
             if self.comment:
                 self.code += "; cast\n"
@@ -294,7 +294,7 @@ class Compiler:
                     self.code += f"mov {node.value} ${register}\n"
                 return "int"
             else:
-                raise CompileError(f"unknown constant type {node.type}", node)
+                raise CompileError(f"invalid constant type `{node.type}`", node)
         elif isinstance(node, c_ast.ID):
             if self.comment:
                 self.code += f"; load variable {node.name}\n"
@@ -307,13 +307,13 @@ class Compiler:
                 else:
                     self.code += f"mov $12 ${register+1}\nsub {-offset} ${register+1}\nldd ${register+1} ${register}\n"
             else:
-                raise CompileError(f"unknown variable {node.name}", node)
+                raise CompileError(f"undefined variable `{node.name}`", node)
 
             return type
         elif isinstance(node, c_ast.EmptyStatement):
             pass
         else:
-            raise CompileError(f"unknown node {node.__class__.__name__}", node)
+            raise CompileError(f"invalid expression or statement `{node.__class__.__name__}`", node)
 
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)
@@ -329,6 +329,9 @@ def run(files, comment, show_ast):
             compiler.compile(ast)
         except CompileError as e:
             click.echo(f"ERROR: {e.message} ({e.node.coord})", err=True)
+            with open(e.node.coord.file, "r") as f:
+                click.echo(f.readlines()[e.node.coord.line - 1][:-1], err=True)
+                click.echo(" " * (e.node.coord.column - 1) + "^", err=True)
             exit(1)
         with open(file + ".out", "w") as f:
             f.write(compiler.code)
