@@ -112,6 +112,10 @@ class Assembler:
             return int(node[0])
         elif node.data == "hex_number":
             return int(node[0], 16)
+        elif node.data == "bin_number":
+            return int(node[0], 2)
+        elif node.data == "char":
+            return ord(node[0][1])
         elif node.data == "label":
             # Keep track of this so we can fix the address later
             self.symbols_use[len(self.code)] = (node[0], is_branch)
@@ -163,7 +167,7 @@ class Assembler:
                     amount = int(node[1][0])
                 else:
                     amount = 1
-                self.code += struct.pack("<" + format, int(node[0][0])) * amount
+                self.code += struct.pack("<" + format, self.read_imm(node[0])) * amount
 
     def link(self, final=False):
         if final:

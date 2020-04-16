@@ -5,9 +5,11 @@ _NEWLINE: /\r?\n/
 word: WORD
 number: NUMBER
 hex_number: /0x[\da-fA-F]+/
+bin_number: /0b[10]+/
+char: /'.'/
 register: "$" /1[0-5]|\d/
 label: "#" WORD
-_imm: label | hex_number | number | word
+_imm: label | hex_number | bin_number | char | number | word
 
 instruction: "nop"                      -> i_nop
            | "add"   register register  -> i_add
@@ -72,12 +74,12 @@ instruction: "nop"                      -> i_nop
            | "std"   _imm _imm          -> i_stdii
            | "ret"                      -> i_ret
 label_line: word ":"
-directive: ".byte"    number _imm?  -> d_byte
-         | ".word"    number _imm?  -> d_word
-         | ".dword"   number _imm?  -> d_dword
-         | ".export"  label         -> d_export
-         | ".import"  label         -> d_import
-         | ".define"  word _imm     -> d_define
+directive: ".byte"    _imm _imm?  -> d_byte
+         | ".word"    _imm _imm?  -> d_word
+         | ".dword"   _imm _imm?  -> d_dword
+         | ".export"  label       -> d_export
+         | ".import"  label       -> d_import
+         | ".define"  word _imm   -> d_define
 _line: instruction | label_line | directive
 
 program: _NEWLINE* [_line (_NEWLINE+ _line)* _NEWLINE*]
