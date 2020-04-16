@@ -12,6 +12,9 @@ def flatten(l):
         else:
             yield e
 
+def chunks(l, n):
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
 
 class CompileError(Exception):
     def __init__(self, message, node):
@@ -48,6 +51,8 @@ class Compiler:
                     raise CompileError(f"too many type names", node.type)
             else:
                 raise CompileError(f"invalid type node `{node.type.__class__.__name__}`", node.type)
+        elif isinstance(node, c_ast.PtrDecl):
+            return 4
         elif isinstance(node, c_ast.ArrayDecl):
             if node.dim_quals != []:
                 raise CompileError(f"invalid qualifier", node)
@@ -69,6 +74,8 @@ class Compiler:
             size = Compiler.type_size(node)
         elif isinstance(node, (c_ast.ArrayDecl, c_ast.PtrDecl)):
             size = 4
+        elif isinstance(node, c_ast.Decl):
+            return Compiler.size_directive(node.type)
         else:
             raise CompileError(f"invalid type node `{node.__class__.__name__}`", node)
         return {
@@ -184,7 +191,7 @@ class Compiler:
                     else:
                         raise CompileError(f"invalid global initializer type `{node.init.__class__.__name__}`", node)
 
-                self.vars[0][node.name] = (-1, node)
+                self.vars[0][node.name] = (-1, node.type)
             else:
                 raise CompileError(f"invalid global declaration type `{node.type.__class__.__name__}`", node)
         else:
@@ -211,7 +218,7 @@ class Compiler:
             self.generate_expression(node.expr)
             self.code += "mov $12 $15\npop $12\nret\n"
         elif isinstance(node, c_ast.Decl):
-            if isinstance(node.type, c_ast.TypeDecl):
+            if isinstance(node.type, (c_ast.TypeDecl, c_ast.PtrDecl)):
                 if self.comment:
                     self.code += f"; variable {node.name}\n"
 
@@ -228,24 +235,33 @@ class Compiler:
                 if self.comment:
                     self.code += f"; variable (array) {node.name}\n"
 
-                array = self.make_array(node.type, node.init)
+                array = list(flatten(self.make_array(node.type, node.init)))
+                
+                # Encode array into a sequence of dwords to be pushed
+                size = self.type_size(self.type_base(node.type.type)) * 8
+                in_dword = 32 // size
+                array += [0] * (len(array) % in_dword)
+                pushed = 0
 
-                # Items need to be pushed in the reverse order
-                for item in array[::-1]:
-                    if item == None:
-                        self.code += f"push $0\n"
-                    elif isinstance(item, c_ast.Constant):
-                        if int(item.value) == 0:
-                            self.code += f"push $0\n"
+                for chunk in chunks(array[::-1], in_dword):
+                    dword = 0
+                    for shift in reversed(range(in_dword)):
+                        # Assumes array dim is constant TODO
+                        if chunk[shift] != None:
+                            value = int(chunk[shift].value)
                         else:
-                            self.code += f"push {item.value}\n"
+                            value = 0
+                        dword |= value << (shift * size)
+                    if dword == 0:
+                        self.code += f"push $0\n"
                     else:
-                        raise CompileError(f"invalid global initializer type `{node.init.__class__.__name__}`", node)
+                        self.code += f"push {dword}\n"
+                    pushed += 1
 
-                self.sp_offset -= 4 * len(array)
+                self.sp_offset -= 4 * pushed
                 self.vars[-1][node.name] = (self.sp_offset, node.type)
             else:
-                raise CompileError(f"unknown declaration type `{node.__class__.__name__}`", node)
+                raise CompileError(f"unknown declaration type `{node.type.__class__.__name__}`", node)
         elif isinstance(node, c_ast.Assignment):
             if self.comment:
                 self.code += "; assignment\n"
@@ -272,10 +288,18 @@ class Compiler:
             if not isinstance(type, (c_ast.ArrayDecl, c_ast.PtrDecl)):
                 raise CompileError(f"can't index non-pointer value", node)
 
-            self.code += f"push ${register+1}\n"
+            # We want to work with the value of the pointer variable, not a pointer to it
+            if isinstance(type, c_ast.PtrDecl):
+                self.code += f"push ${register}\n"
+            else:
+                self.code += f"push ${register+1}\n"
             self.generate_expression(node.subscript, register=register)
-            self.code += f"mul {self.type_size(type.type)} ${register}\nmov $13 ${register}\n"
-            self.code += f"pop ${register+1}\nadd ${register} ${register+1}\nld{self.size_directive(type.type)[0]} ${register+1} ${register}\n"
+            self.code += f"mul {self.type_size(type.type)} ${register}\nmov $13 ${register}\npop ${register+1}\nadd ${register} ${register+1}\n"
+            # Workaround for multidimensional arrays: pointers to sub-arrays aren't actually created in memory
+            if isinstance(type.type, c_ast.ArrayDecl):
+                self.code += f"mov ${register+1} ${register}\n"
+            else:
+                self.code += f"ld{self.size_directive(type.type)[0]} ${register+1} ${register}\n"
             return type.type
         elif isinstance(node, c_ast.For):
             if self.comment:
@@ -346,13 +370,13 @@ class Compiler:
             if self.comment:
                 self.code += "; constant\n"
 
-            if node.type == "int":
+            if node.type in ("char", "short", "int"):
                 if node.value == "0":
                     # Moving $0 uses less space than using an immediate value
                     self.code += f"mov $0 ${register}\n"
                 else:
                     self.code += f"mov {node.value} ${register}\n"
-                return "int"
+                return node.type
             else:
                 raise CompileError(f"invalid constant type `{node.type}`", node)
         elif isinstance(node, c_ast.ID):
