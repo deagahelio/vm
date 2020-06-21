@@ -1,0 +1,6 @@
+(fn main [] uint32
+    (var uint8 foo 0)
+    (while (!= foo 255)
+        (++ foo)
+    )
+    (return foo))
