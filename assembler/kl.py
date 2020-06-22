@@ -2,6 +2,25 @@
 
 import click
 
+TYPE_SIZES = {
+    "uint8": 1,
+    "uint16": 2,
+    "uint32": 4,
+    "int8": 1,
+    "int16": 2,
+    "int32": 4,
+}
+
+SIZE_DIRECTIVES = {
+    1: "byte",
+    2: "word",
+    4: "dword",
+}
+
+TYPE_DIRECTIVES = {t: SIZE_DIRECTIVES[TYPE_SIZES[t]] for t in TYPE_SIZES.keys()}
+
+TYPES = list(TYPE_SIZES.keys())
+
 def flatten(l):
     for e in l:
         if isinstance(e, list):
@@ -26,6 +45,12 @@ class Node():
 
     def __str__(self):
         return str(self.lit())
+    
+    def __getitem__(self, index):
+        return self.value[index]
+    
+    def __len__(self):
+        return len(self.value)
 
     def lit(self):
         if self.type == "list":
@@ -37,7 +62,10 @@ def parse(code, line=1, col=1):
     ast = []
     current = ""
     mode = "normal"
+    comment = False
     paren_level = 0
+
+    first_line, first_col = old_line, old_col = line, col
 
     for i, char in enumerate(code):
         #print(f"{char}:{line}:{col} / {current}")
@@ -46,6 +74,12 @@ def parse(code, line=1, col=1):
         if char == "\n":
             line += 1
             col = 1
+        
+        if comment:
+            if char == "\n":
+                comment = False
+                current = ""
+                continue
 
         if mode == "list":
             if char == "(":
@@ -55,43 +89,33 @@ def parse(code, line=1, col=1):
                 paren_level -= 1
 
                 if paren_level == 0:
-                    ast.append(parse(current, line, col))
+                    ast.append(parse(current, old_line, old_col))
                     mode = "normal"
                     current = ""
                     continue
 
             current += char
         
-        elif mode == "array":
-            if char == "[":
-                paren_level += 1
-
-            elif char == "]":
-                paren_level -= 1
-
-                if paren_level == 0:
-                    node = parse(current, line, col)
-                    node.type = "array"
-                    ast.append(node)
-                    mode = "normal"
-                    current = ""
-                    continue
-
-            current += char
-
         elif mode == "normal":
-            if char in (" ", "\t", "\n", "\r", "(") or i == len(code) - 1:
+            if char in " \t\n\r([" or i == len(code) - 1:
                 if i == len(code) - 1:
                     current += char
 
-                if current not in ("", " ", "\t", "\n", "\r", "("):
+                if current not in " \t\n\r([" and current != "":
                     node = Node(current, "word", line, col - len(current) - 1)
 
-                    try:
+                    if node.value.startswith("0x"):
+                        node.value = int(node.value, 16)
+                        node.type = "int"
+                    elif node.value.startswith("0b"):
+                        node.value = int(node.value, 2)
+                        node.type = "int"
+                    elif node.value.startswith("0o"):
+                        node.value = int(node.value, 8)
+                        node.type = "int"
+                    elif node.value[0] in "0123456789":
                         node.value = int(node.value)
                         node.type = "int"
-                    except ValueError:
-                        pass
 
                     ast.append(node)
 
@@ -100,12 +124,16 @@ def parse(code, line=1, col=1):
                 if char == "(":
                     mode = "list"
                     paren_level += 1
+                    old_line, old_col = line, col
 
                 continue
 
+            if char == ";":
+                mode = "comment"
+
             current += char
     
-    return Node(ast, "list", 1, 1)
+    return Node(ast, "list", first_line, first_col)
 
 class CompileError(Exception):
     def __init__(self, message, node):
@@ -114,24 +142,114 @@ class CompileError(Exception):
         self.node = node
 
 class Compiler:
-    def __init__(self, comment=False):
+    def __init__(self, path="<unknown>", comment=False):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
         self.vars = [{}] # Stores variables and scopes (first scope is global)
         self.sp_offset = 0 # Keeps track of distance from base of stack frame to store local variables
 
+        self.path = path # Path to source code file
+        self.source_code = None # Contents of source code file to generate comments. Optional, must be set manually
+        self.line = 0 # Last line of code that a comment was generated for
         self.comment = comment # When set to true, will generate comments for the assembly code
 
         self._unique_id = 0 # Used for control flow labels
     
     def compile(self, ast):
+        self.code = ""
+        self.line = 0
+        if self.source_code:
+            self.source_code = self.source_code.split("\n")
+
         for node in ast:
             if node.type != "list":
                 raise CompileError("top-level expression must be list", node)
-            self.generate_expression(node)
+
+            self.generate_expression(node, True)
     
-    def generate_expression(self, node):
-        pass
+    def generate_expression(self, node, root=False, r=1):
+        if self.comment and node.line > self.line:
+            self.line = node.line
+            self.code += f"; >>> {self.path}:{node.line}"
+            if self.source_code:
+                self.code += f" | {self.source_code[node.line - 1]}"
+            self.code += "\n"
+
+        if node.type == "int":
+            self.code += f"mov {node.value} ${r}\n"
+
+        elif node[0].value == "fn":
+            if len(node) < 4:
+                raise CompileError("wrong number of arguments", node)
+                
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be type", node)
+
+            if node[2].type != "word":
+                raise CompileError("invalid function name", node)
+
+            if node[3].type != "list":
+                raise CompileError("third argument must be parameter list", node)
+
+            self.sp_offset = 0
+            self.vars.append({})
+
+            self.code += f".export #{node[2]}\n{node[2]}:\npush $12\nmov $15 $12\n"
+            for expr in node[4:]:
+                self.generate_expression(expr, r=r)
+            self.code += "mov $12 $15\npop $12\nret\n"
+
+            self.vars.pop()
+
+            self.funcs[node[2].value] = node
+        
+        elif node[0].value == "static":
+            if len(node) not in (4, 3):
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be type", node)
+
+            if node[2].type != "word":
+                raise CompileError("invalid variable name", node)
+
+            if not root:
+                raise CompileError("static variable should have top-level declaration", node)
+
+            self.code += f".export #{node[2]}\n{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+            if len(node) == 3:
+                self.code += "0\n"
+            else:
+                # TODO: only works with ints
+                self.code += f"{node[3]}\n"
+
+            self.vars[0][node[2].value] = (-1, node)
+
+        elif node[0].value == "local":
+            if len(node) not in (4, 3):
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be type", node)
+
+            if node[2].type != "word":
+                raise CompileError("invalid variable name", node)
+
+            if root:
+                raise CompileError("local variable cannot have top-level declaration", node)
+
+            if len(node) == 3:
+                # TODO: only works with ints
+                self.code += f"mov $0 ${r}\n"
+            else:
+                self.generate_expression(node[3], r=r)
+            self.code += f"push ${r}\n"
+
+            self.sp_offset -= 4
+            self.vars[-1][node[2].value] = (self.sp_offset, node)
+
+        else:
+            raise CompileError("unknown expression type", node)
 
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)
@@ -141,12 +259,16 @@ def run(files, comment):
 
     for file in files:
         with open(file, "r") as f:
-            ast = parse(f.read())
+            code = f.read()
+            ast = parse(code)
+
+        compiler.path = file
+        compiler.source_code = code
 
         try:
             compiler.compile(ast)
         except CompileError as e:
-            click.echo(f"ERROR: {e.message} ({e.node.line}:{e.node.col})", err=True)
+            click.echo(f"ERROR: {e.message} ({file}:{e.node.line}:{e.node.col})", err=True)
 
             with open(file, "r") as f:
                 click.echo(f.readlines()[e.node.line - 1][:-1], err=True)
