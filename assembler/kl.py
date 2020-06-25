@@ -177,6 +177,22 @@ class Compiler:
 
         if node.type == "int":
             self.code += f"mov {node.value} ${r}\n"
+        
+        elif node.type == "word":
+            found = False
+
+            for scope in reversed(self.vars):
+                if node.value in scope.keys():
+                    found = True
+                    var = scope[node.value]
+
+                    if var["global"]:
+                        self.code += f"mov #{node.value} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+                    else:
+                        self.code += f"mov $12 ${r+1}\nsub {-var['offset']} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+            
+            if not found:
+                raise CompileError("undefined variable", node)
 
         elif node[0].value == "fn":
             if len(node) < 4:
@@ -190,6 +206,9 @@ class Compiler:
 
             if node[3].type != "list":
                 raise CompileError("third argument must be parameter list", node)
+            
+            if not root:
+                raise CompileError("function should have top-level declaration", node)
 
             self.sp_offset = 0
             self.vars.append({})
@@ -201,7 +220,11 @@ class Compiler:
 
             self.vars.pop()
 
-            self.funcs[node[2].value] = node
+            self.funcs[node[2].value] = {
+                "node": node,
+                "type": node[1].value,
+                "args": [],
+            }
         
         elif node[0].value == "static":
             if len(node) not in (4, 3):
@@ -223,7 +246,11 @@ class Compiler:
                 # TODO: only works with ints
                 self.code += f"{node[3]}\n"
 
-            self.vars[0][node[2].value] = (-1, node)
+            self.vars[0][node[2].value] = {
+                "global": True, 
+                "node": node,
+                "type": node[1].value,
+            }
 
         elif node[0].value == "local":
             if len(node) not in (4, 3):
@@ -246,7 +273,22 @@ class Compiler:
             self.code += f"push ${r}\n"
 
             self.sp_offset -= 4
-            self.vars[-1][node[2].value] = (self.sp_offset, node)
+            self.vars[-1][node[2].value] = {
+                "global": False, 
+                "offset": self.sp_offset,
+                "node": node,
+                "type": node[1].value,
+            }
+        
+        elif node[0].value == "return":
+            if len(node) > 2:
+                raise CompileError("wrong number of arguments", node)
+
+            if len(node) == 2:
+                self.generate_expression(node[1], r=r)
+                if r != 1:
+                    self.code += f"mov ${r} $1\n"
+            self.code += "mov $12 $15\npop $12\nret\n"
 
         else:
             raise CompileError("unknown expression type", node)
