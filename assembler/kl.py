@@ -274,12 +274,35 @@ class Compiler:
             if not statement:
                 raise CompileError("while loop cannot be used in expression", node)
 
-            self.code += f"__while_{node.id}_1:\n"
+            self.code += f"__while_{node.id}:\n"
             self.generate_expression(node[1], r=r)
-            self.code += f"ceq ${r} $0\nbt #__while_{node.id}_1_end\n"
+            self.code += f"ceq ${r} $0\nbt #__while_{node.id}_end\n"
             for expr in node[2:]:
                 self.generate_expression(expr, statement=True, r=r)
-            self.code += f"b #__while_{node.id}_1\n__while_{node.id}_1_end:\n"
+            self.code += f"b #__while_{node.id}\n__while_{node.id}_end:\n"
+        
+        elif node[0].value == "cond":
+            if len(node) == 1:
+                raise CompileError("wrong number of arguments", node)
+
+            if not statement:
+                raise CompileError("cond statement cannot be used in expression", node)
+
+            i = 0
+
+            for block in node[1:]:
+                if len(block) == 0:
+                    raise CompileError("cond branch cannot be empty", node)
+
+                self.code += f"__cond_{node.id}_{i}:\n"
+                self.generate_expression(block[0], r=r)
+                self.code += f"ceq ${r} $0\nbt #__cond_{node.id}_{i+1}\n"
+                for expr in block[1:]:
+                    self.generate_expression(expr, statement=True, r=r)
+
+                i += 1
+            
+            self.code += f"__cond_{node.id}_{i}:\n"
         
         elif node[0].value == "static":
             if len(node) not in (4, 3):
@@ -358,7 +381,7 @@ class Compiler:
                     self.code += f"mov ${r} $1\n"
             self.code += "mov $12 $15\npop $12\nret\n"
         
-        elif node[0].value in ("+", "-", "*", "/", "%", "<", ">"):
+        elif node[0].value in ("+", "-", "*", "/", "%", "<", ">", "=="):
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
 
@@ -376,6 +399,7 @@ class Compiler:
                 # TODO: clt and cgt don't work for signed ints
                 "<": f"clt ${r} ${r+1}\nmov $0 ${r}\nbf #__clt_{node.id}_1\nmov 1 ${r}\n__clt_{node.id}_1:\n",
                 ">": f"cgt ${r} ${r+1}\nmov $0 ${r}\nbf #__cgt_{node.id}_1\nmov 1 ${r}\n__cgt_{node.id}_1:\n",
+                "==": f"ceq ${r} ${r+1}\nmov $0 ${r}\nbf #__ceq_{node.id}_1\nmov 1 ${r}\n__ceq_{node.id}_1:\n",
             }[node[0].value]
             
             return self.merge_types(type_l, type_r, node)
