@@ -77,10 +77,11 @@ class Node():
         return f"{self.line}_{self.col}"
 
 def parse(code, line=1, col=1):
+    code = "\n".join([line.split(";")[0] for line in code.split("\n")])
+
     ast = []
     current = ""
     mode = "normal"
-    comment = False
     paren_level = 0
 
     first_line, first_col = old_line, old_col = line, col
@@ -92,12 +93,6 @@ def parse(code, line=1, col=1):
         if char == "\n":
             line += 1
             col = 1
-        
-        if comment:
-            if char == "\n":
-                comment = False
-                current = ""
-                continue
 
         if mode == "list":
             if char == "(":
@@ -145,9 +140,6 @@ def parse(code, line=1, col=1):
                     old_line, old_col = line, col
 
                 continue
-
-            if char == ";":
-                mode = "comment"
 
             current += char
     
@@ -274,6 +266,20 @@ class Compiler:
                 "type": node[1].value,
                 "args": [], # TODO: function args
             }
+        
+        elif node[0].value == "while":
+            if len(node) == 1:
+                raise CompileError("wrong number of arguments", node)
+
+            if not statement:
+                raise CompileError("while loop cannot be used in expression", node)
+
+            self.code += f"__while_{node.id}_1:\n"
+            self.generate_expression(node[1], r=r)
+            self.code += f"ceq ${r} $0\nbt #__while_{node.id}_1_end\n"
+            for expr in node[2:]:
+                self.generate_expression(expr, statement=True, r=r)
+            self.code += f"b #__while_{node.id}_1\n__while_{node.id}_1_end:\n"
         
         elif node[0].value == "static":
             if len(node) not in (4, 3):
