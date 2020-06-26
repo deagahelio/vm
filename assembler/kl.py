@@ -153,7 +153,12 @@ class Compiler:
         self.line = 0 # Last line of code that a comment was generated for
         self.comment = comment # When set to true, will generate comments for the assembly code
 
-        self._unique_id = 0 # Used for control flow labels
+        self.last_unique_id = 0 # Used for control flow labels
+
+    @property
+    def unique_id(self):
+        self.last_unique_id += 1
+        return self.last_unique_id
     
     def compile(self, ast):
         self.code = ""
@@ -223,7 +228,7 @@ class Compiler:
             self.funcs[node[2].value] = {
                 "node": node,
                 "type": node[1].value,
-                "args": [],
+                "args": [], # TODO: function args
             }
         
         elif node[0].value == "static":
@@ -289,6 +294,25 @@ class Compiler:
                 if r != 1:
                     self.code += f"mov ${r} $1\n"
             self.code += "mov $12 $15\npop $12\nret\n"
+        
+        elif node[0].value in ("+", "-", "*", "/", "%", "<", ">"):
+            if len(node) != 3:
+                raise CompileError("wrong number of arguments", node)
+
+            self.generate_expression(node[1], r=r)
+            self.code += f"push ${r}\n"
+            self.generate_expression(node[2], r=r)
+            self.code += f"mov ${r} ${r+1}\npop ${r}\n"
+
+            self.code += {
+                "+": f"add ${r+1} ${r}\n",
+                "-": f"sub ${r+1} ${r}\n",
+                "*": f"mul ${r+1} ${r}\nmov $13 ${r}\n",
+                "/": f"div ${r+1} ${r}\nmov $14 ${r}\n",
+                "%": f"div ${r+1} ${r}\nmov $13 ${r}\n",
+                "<": f"clt ${r} ${r+1}\nmov $0 ${r}\nbf #__clt{self.unique_id}\nmov 1 ${r}\n__clt{self.last_unique_id}:\n",
+                ">": f"cgt ${r} ${r+1}\nmov $0 ${r}\nbf #__cgt{self.unique_id}\nmov 1 ${r}\n__cgt{self.last_unique_id}:\n",
+            }[node[0].value]
 
         else:
             raise CompileError("unknown expression type", node)
