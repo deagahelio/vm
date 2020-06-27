@@ -320,17 +320,51 @@ class Compiler:
             if node[2].value in self.vars[0]:
                 raise CompileError("cannot declare variable twice", node)
 
+            if node[3].type != "int":
+                raise CompileError("static variable must be integer", node)
+
             self.code += f".export #{node[2]}\n{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
             if len(node) == 3:
                 self.code += "0\n"
             else:
-                # TODO: only works with ints
                 self.code += f"{node[3]}\n"
 
             self.vars[0][node[2].value] = {
                 "global": True, 
                 "node": node,
                 "type": node[1].value,
+                "length": 1,
+            }
+        
+        elif node[0].value == "array":
+            if len(node) != 4:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be type", node)
+
+            if node[2].type != "word":
+                raise CompileError("invalid array name", node)
+
+            if not root:
+                raise CompileError("array should have top-level declaration", node)
+
+            if node[2].value in self.vars[0]:
+                raise CompileError("cannot declare variable twice", node)
+
+            self.code += f".export #{node[2]}\n{node[2]}:\n" 
+
+            for expr in node[3]:
+                if expr.type != "int":
+                    raise CompileError("array element must be integer literal", node)
+
+                self.code += f".{TYPE_DIRECTIVES[node[1].value]} {expr}\n"
+
+            self.vars[0][node[2].value] = {
+                "global": True, 
+                "node": node,
+                "type": node[1].value,
+                "length": len(node[3]),
             }
 
         elif node[0].value == "local":
@@ -366,6 +400,7 @@ class Compiler:
                 "offset": self.sp_offset,
                 "node": node,
                 "type": node[1].value,
+                "length": 1,
             }
         
         elif node[0].value == "return":
@@ -436,6 +471,25 @@ class Compiler:
             self.code += f"pop ${r+1}\nst{size} ${r} ${r+1}\n"
 
             return type
+        
+        elif node[0].value in ("get-8", "get-16", "get-32"):
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+
+            size = {
+                "get-8": "b",
+                "get-16": "w",
+                "get-32": "d",
+            }[node[0].value]
+
+            self.generate_expression(node[1], r=r)
+            self.code += f"ld{size} ${r} ${r}\n"
+
+            return {
+                "b": "uint8",
+                "w": "uint16",
+                "d": "uint32",
+            }[size]
 
         elif node[0].value == "cast":
             if len(node) != 3:
@@ -454,6 +508,39 @@ class Compiler:
 
             self.generate_expression(node[1], r=r)
             self.code += f"mov ${r+1} ${r}\n"
+
+            return "uint32"
+        
+        elif node[0].value == "elem-var":
+            if len(node) != 3:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word":
+                raise CompileError("first argument must be variable name", node)
+
+            type_l = self.generate_expression(node[1], r=r)
+            self.code += f"push ${r+1}\n"
+            type_r = self.generate_expression(node[2], r=r)
+            self.code += f"pop ${r+1}\n"
+            if TYPE_SIZES[type_l] != 1:
+                self.code += f"mul ${r} {TYPE_SIZES[type_l]}\nadd $13 ${r+1}\n"
+            else:
+                self.code += f"add ${r} ${r+1}\n"
+            self.code += f"ld{TYPE_DIRECTIVES[type_l][0]} ${r+1} ${r}\n"
+
+            return type_l
+        
+        elif node[0].value == "len-var":
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word":
+                raise CompileError("first argument must be variable name", node)
+
+            if node[1].value not in self.vars[0]:
+                raise CompileError("undefined variable", node)
+
+            self.code += f"mov {self.vars[0][node[1].value]['length']} ${r}\n"
 
             return "uint32"
 
