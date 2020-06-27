@@ -1,4 +1,4 @@
-WORD: /[a-zA-Z_]\w*/
+WORD: /[a-zA-Z_-]\w*/
 NUMBER: /\d+/
 _NEWLINE: /\r?\n/
 
@@ -73,7 +73,7 @@ instruction: "nop"                      -> i_nop
            | "stw"   _imm _imm          -> i_stwii
            | "std"   _imm _imm          -> i_stdii
            | "ret"                      -> i_ret
-label_line: word ":"
+label_line: "#" word ":"
 directive: ".byte"    _imm _imm?  -> d_byte
          | ".word"    _imm _imm?  -> d_word
          | ".dword"   _imm _imm?  -> d_dword

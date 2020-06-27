@@ -229,7 +229,12 @@ class Compiler:
                     if var["global"]:
                         self.code += f"mov #{node.value} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
                     else:
-                        self.code += f"mov $12 ${r+1}\nsub {-var['offset']} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+                        self.code += f"mov $12 ${r+1}\n"
+                        if var["offset"] < 0:
+                            self.code += f"sub {-var['offset']} ${r+1}\n"
+                        else:
+                            self.code += f"add {var['offset']} ${r+1}\n"
+                        self.code += f"ld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
                     
                     return var["type"]
             
@@ -254,7 +259,30 @@ class Compiler:
             self.sp_offset = 0
             self.vars.append({})
 
-            self.code += f".export #{node[2]}\n{node[2]}:\npush $12\nmov $15 $12\n"
+            arg_offset = 8
+            for arg in node[3]:
+                if arg.type != "list":
+                    raise CompileError("invalid parameter definition", node)
+
+                if len(arg) != 2:
+                    raise CompileError("wrong number of arguments", node)
+
+                if arg[0].value not in TYPES:
+                    raise CompileError("first argument must be type", node)
+
+                if arg[1].type != "word":
+                    raise CompileError("invalid parameter name", node)
+
+                self.vars[-1][arg[1].value] = {
+                    "global": False, 
+                    "offset": arg_offset,
+                    "node": arg,
+                    "type": arg[0].value,
+                    "length": 1,
+                }
+                arg_offset += 4
+
+            self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
             for expr in node[4:]:
                 self.generate_expression(expr, statement=True, r=r)
             self.code += "mov $12 $15\npop $12\nret\n"
@@ -274,12 +302,12 @@ class Compiler:
             if not statement:
                 raise CompileError("while loop cannot be used in expression", node)
 
-            self.code += f"__while_{node.id}:\n"
+            self.code += f"#__while_{node.id}:\n"
             self.generate_expression(node[1], r=r)
             self.code += f"ceq ${r} $0\nbt #__while_{node.id}_end\n"
             for expr in node[2:]:
                 self.generate_expression(expr, statement=True, r=r)
-            self.code += f"b #__while_{node.id}\n__while_{node.id}_end:\n"
+            self.code += f"b #__while_{node.id}\n#__while_{node.id}_end:\n"
         
         elif node[0].value == "cond":
             if len(node) == 1:
@@ -294,7 +322,7 @@ class Compiler:
                 if len(block) == 0:
                     raise CompileError("cond branch cannot be empty", node)
 
-                self.code += f"__cond_{node.id}_{i}:\n"
+                self.code += f"#__cond_{node.id}_{i}:\n"
                 self.generate_expression(block[0], r=r)
                 self.code += f"ceq ${r} $0\nbt #__cond_{node.id}_{i+1}\n"
                 for expr in block[1:]:
@@ -302,7 +330,7 @@ class Compiler:
 
                 i += 1
             
-            self.code += f"__cond_{node.id}_{i}:\n"
+            self.code += f"#__cond_{node.id}_{i}:\n"
         
         elif node[0].value == "static":
             if len(node) not in (4, 3):
@@ -323,7 +351,7 @@ class Compiler:
             if node[3].type != "int":
                 raise CompileError("static variable must be integer", node)
 
-            self.code += f".export #{node[2]}\n{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+            self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
             if len(node) == 3:
                 self.code += "0\n"
             else:
@@ -352,7 +380,7 @@ class Compiler:
             if node[2].value in self.vars[0]:
                 raise CompileError("cannot declare variable twice", node)
 
-            self.code += f".export #{node[2]}\n{node[2]}:\n" 
+            self.code += f".export #{node[2]}\n#{node[2]}:\n" 
 
             for expr in node[3]:
                 if expr.type != "int":
@@ -432,9 +460,9 @@ class Compiler:
                 "/": f"div ${r+1} ${r}\nmov $14 ${r}\n",
                 "%": f"div ${r+1} ${r}\nmov $13 ${r}\n",
                 # TODO: clt and cgt don't work for signed ints
-                "<": f"clt ${r} ${r+1}\nmov $0 ${r}\nbf #__clt_{node.id}_1\nmov 1 ${r}\n__clt_{node.id}_1:\n",
-                ">": f"cgt ${r} ${r+1}\nmov $0 ${r}\nbf #__cgt_{node.id}_1\nmov 1 ${r}\n__cgt_{node.id}_1:\n",
-                "==": f"ceq ${r} ${r+1}\nmov $0 ${r}\nbf #__ceq_{node.id}_1\nmov 1 ${r}\n__ceq_{node.id}_1:\n",
+                "<": f"clt ${r} ${r+1}\nmov $0 ${r}\nbf #__clt_{node.id}_1\nmov 1 ${r}\n#__clt_{node.id}_1:\n",
+                ">": f"cgt ${r} ${r+1}\nmov $0 ${r}\nbf #__cgt_{node.id}_1\nmov 1 ${r}\n#__cgt_{node.id}_1:\n",
+                "==": f"ceq ${r} ${r+1}\nmov $0 ${r}\nbf #__ceq_{node.id}_1\nmov 1 ${r}\n#__ceq_{node.id}_1:\n",
             }[node[0].value]
             
             return self.merge_types(type_l, type_r, node)
@@ -544,8 +572,22 @@ class Compiler:
 
             return "uint32"
 
+        elif node[0].value in self.funcs:
+            func = self.funcs[node[0].value]
+
+            for arg in reversed(node[1:]):
+                self.generate_expression(arg, r=r)
+                self.code += f"push ${r}\n"
+            self.code += f"call #{node[0]}\n"
+            if r != 1:
+                self.code += f"mov $1 ${r}\n"
+            for _ in node[1:]:
+                self.code += "pop $0\n"
+            
+            return func["type"]
+
         else:
-            raise CompileError("unknown expression type", node)
+            raise CompileError("undefined function", node)
 
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)

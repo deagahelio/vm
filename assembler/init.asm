@@ -4,8 +4,8 @@
 
 mov #stack $15
 call #main
-hang:
+#hang:
     j #hang
 
 .dword 0 100
-stack:
+#stack:
