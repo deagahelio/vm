@@ -33,7 +33,7 @@ SIZE_DIRECTIVES = {
 
 TYPE_DIRECTIVES = {t: SIZE_DIRECTIVES[TYPE_SIZES[t]] for t in TYPE_SIZES.keys()}
 
-TYPES = list(TYPE_SIZES.keys())
+TYPES = list(TYPE_SIZES.keys()) + ["void"]
 
 def flatten(l):
     for e in l:
@@ -77,12 +77,14 @@ class Node():
         return f"{self.line}_{self.col}"
 
 def parse(code, line=1, col=1):
-    code = "\n".join([line.split(";")[0] for line in code.split("\n")])
-
     ast = []
     current = ""
     mode = "normal"
     paren_level = 0
+    comment = False
+    string = False
+    char_ = False
+    escape = False
 
     first_line, first_col = old_line, old_col = line, col
 
@@ -94,7 +96,35 @@ def parse(code, line=1, col=1):
             line += 1
             col = 1
 
-        if mode == "list":
+        if comment:
+            if char == "\n":
+                comment = False
+            continue
+
+        elif string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+                continue
+            elif char == "\"":
+                ast.append(Node(
+                    [Node(ord(char), "int", line, col - len(current) - 1) for char in current],
+                    "list",
+                    line, col - len(current) - 1
+                ))
+                string = False
+                continue
+
+            current += char
+            continue
+
+        elif char_:
+            ast.append(Node(ord(char), "int", line, col - 1))
+            char_ = False
+            continue
+
+        elif mode == "list":
             if char == "(":
                 paren_level += 1
 
@@ -110,11 +140,21 @@ def parse(code, line=1, col=1):
             current += char
         
         elif mode == "normal":
-            if char in " \t\n\r([" or i == len(code) - 1:
+            if char == "\"":
+                string = True
+                current = ""
+                continue
+            
+            if char == "'":
+                char_ = True
+                current = ""
+                continue
+
+            elif char in " \t\n\r([;" or i == len(code) - 1:
                 if i == len(code) - 1:
                     current += char
 
-                if current not in " \t\n\r([" and current != "":
+                if current not in " \t\n\r([;" and current != "":
                     node = Node(current, "word", line, col - len(current) - 1)
 
                     if node.value.startswith("0x"):
@@ -138,6 +178,9 @@ def parse(code, line=1, col=1):
                     mode = "list"
                     paren_level += 1
                     old_line, old_col = line, col
+                
+                if char == ";":
+                    comment = True
 
                 continue
 
@@ -204,7 +247,7 @@ class Compiler:
             if node.type != "list":
                 raise CompileError("top-level expression must be list", node)
 
-            self.generate_expression(node, True)
+            self.generate_expression(node, root=True)
     
     def generate_expression(self, node, root=False, statement=False, r=1):
         if self.comment and node.line > self.line:
@@ -304,7 +347,7 @@ class Compiler:
 
             self.code += f"#__while_{node.id}:\n"
             self.generate_expression(node[1], r=r)
-            self.code += f"ceq ${r} $0\nbt #__while_{node.id}_end\n"
+            self.code += f"bf #__while_{node.id}_end\n"
             for expr in node[2:]:
                 self.generate_expression(expr, statement=True, r=r)
             self.code += f"b #__while_{node.id}\n#__while_{node.id}_end:\n"
@@ -316,22 +359,16 @@ class Compiler:
             if not statement:
                 raise CompileError("cond statement cannot be used in expression", node)
 
-            i = 0
-
-            for block in node[1:]:
+            for i, block in enumerate(node[1:]):
                 if len(block) == 0:
                     raise CompileError("cond branch cannot be empty", node)
 
-                self.code += f"#__cond_{node.id}_{i}:\n"
                 self.generate_expression(block[0], r=r)
-                self.code += f"ceq ${r} $0\nbt #__cond_{node.id}_{i+1}\n"
+                self.code += f"bf #__cond_{node.id}_{i}\n"
                 for expr in block[1:]:
                     self.generate_expression(expr, statement=True, r=r)
-
-                i += 1
+                self.code += f"#__cond_{node.id}_{i}:\n"
             
-            self.code += f"#__cond_{node.id}_{i}:\n"
-        
         elif node[0].value == "static":
             if len(node) not in (4, 3):
                 raise CompileError("wrong number of arguments", node)
@@ -444,7 +481,7 @@ class Compiler:
                     self.code += f"mov ${r} $1\n"
             self.code += "mov $12 $15\npop $12\nret\n"
         
-        elif node[0].value in ("+", "-", "*", "/", "%", "<", ">", "=="):
+        elif node[0].value in ("+", "-", "*", "/", "%", "<", ">", ">=", "<=", "==", "!=", "&", "|", "<<", ">>"):
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
 
@@ -460,9 +497,16 @@ class Compiler:
                 "/": f"div ${r+1} ${r}\nmov $14 ${r}\n",
                 "%": f"div ${r+1} ${r}\nmov $13 ${r}\n",
                 # TODO: clt and cgt don't work for signed ints
-                "<": f"clt ${r} ${r+1}\nmov $0 ${r}\nbf #__clt_{node.id}_1\nmov 1 ${r}\n#__clt_{node.id}_1:\n",
-                ">": f"cgt ${r} ${r+1}\nmov $0 ${r}\nbf #__cgt_{node.id}_1\nmov 1 ${r}\n#__cgt_{node.id}_1:\n",
-                "==": f"ceq ${r} ${r+1}\nmov $0 ${r}\nbf #__ceq_{node.id}_1\nmov 1 ${r}\n#__ceq_{node.id}_1:\n",
+                "<": f"clt ${r} ${r+1}\n",
+                ">": f"cgt ${r} ${r+1}\n",
+                "<=": f"cltq ${r} ${r+1}\n",
+                ">=": f"cgtq ${r} ${r+1}\n",
+                "==": f"ceq ${r} ${r+1}\n",
+                "!=": f"cnq ${r} ${r+1}\n",
+                "&": f"and ${r+1} ${r}\n",
+                "|": f"or ${r+1} ${r}\n",
+                "<<": f"shl ${r+1} ${r}\n",
+                ">>": f"shr ${r+1} ${r}\n",
             }[node[0].value]
             
             return self.merge_types(type_l, type_r, node)
@@ -538,6 +582,16 @@ class Compiler:
             self.code += f"mov ${r+1} ${r}\n"
 
             return "uint32"
+        
+        elif node[0].value == "bool":
+            if len(node) > 2:
+                raise CompileError("wrong number of arguments", node)
+                
+            if len(node) == 2:
+                self.generate_expression(node[1], r=r)
+            self.code += f"mov $0 ${r}\nbf #__bool_{node.id}_1\nmov 1 ${r}\n#__bool_{node.id}_1:\n"
+
+            return "uint8"
         
         elif node[0].value == "elem-var":
             if len(node) != 3:
