@@ -133,11 +133,15 @@
 (static uint32 width 640)
 (static uint32 height 360)
 
-(fn void draw-pixel ((uint32 x) (uint32 y) (uint8 r) (uint8 g) (uint8 b))
-    (local uint32 target (+ framebuffer (* 3 (+ x (* y width)))))
-    (set-8 target r)
-    (set-8 (+ target 1) g)
-    (set-8 (+ target 2) b)
+(static uint32 color 0xFFFFFF)
+
+(array uint8 hello "H;ello hntsoaeuhasocrehglrc8qjdkcgqdjbkrcgbdcr/b,.ma,mtmszqtsjnrttaoehrlaturcohgichgi")
+
+(fn void draw-pixel ((uint32 x) (uint32 y))
+    (local uint32 target (+ framebuffer (* 4 (+ x (* y width)))))
+    (set-8 (+ target 1) (>> (& 0xFF0000 color) 16))
+    (set-8 (+ target 2) (>> (& 0xFF00 color) 8))
+    (set-8 (+ target 3) (& 0xFF color))
 )
 
 (fn void draw-character ((uint32 x) (uint32 y) (uint8 char))
@@ -149,7 +153,7 @@
     (while (< char-y 8)
         (while (< char-x 8)
             (cond ((== 1 (& 1 (>> (get-8 char-data) char-x)))
-                (draw-pixel (+ x char-x) (+ y char-y) 0xFF 0xFF 0xFF)
+                (draw-pixel (+ x char-x) (+ y char-y))
             ))
             (set-var char-x (+ char-x 1))
         )
@@ -171,8 +175,6 @@
         (set-var i (+ i 1))
     )
 )
-
-(array uint8 hello "H;ello hntsoaeuhasocrehglrc8qjdkcgqdjbkrcgbdcr/b,.ma,mtmszqtsjnrttaoehrlaturcohgichgi")
 
 (fn uint32 main ()
     (draw-string 0 0 (addr hello) (len-var hello))

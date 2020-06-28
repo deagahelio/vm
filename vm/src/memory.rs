@@ -19,10 +19,10 @@ impl Memory {
         if let Ok(ref mut framebuffer) = self.framebuffer.as_ref().unwrap().try_lock() {
             for (address, value) in &self.framebuffer_queue {
                 let offset = *address as usize - 0x100000;
-                let mask = !(0xFF << (16 - (offset % 3 * 8)));
-                let value = (*value as u32) << (16 - (offset % 3 * 8));
+                let mask = !(0xFF000000 >> (offset % 4 * 8));
+                let value = (*value as u32) << (24 - (offset % 4 * 8));
 
-                let pixel = &mut framebuffer[offset / 3];
+                let pixel = &mut framebuffer[offset / 4];
                 *pixel = (*pixel & mask) | value;
             }
             self.framebuffer_queue.clear();
@@ -46,7 +46,7 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
-        if self.framebuffer.is_some() && (0x100000..0x1f00000).contains(&address) {
+        if self.framebuffer.is_some() && (0x100000..0x1fffffc).contains(&address) {
             self.framebuffer_queue.push((address, value));
         }
         self.bytes.get_mut(address as usize).map(|old_value| std::mem::replace(old_value, value))

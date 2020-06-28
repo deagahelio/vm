@@ -386,7 +386,7 @@ class Compiler:
             if node[2].value in self.vars[0]:
                 raise CompileError("cannot declare variable twice", node)
 
-            if node[3].type != "int":
+            if len(node) == 4 and node[3].type != "int":
                 raise CompileError("static variable must be integer", node)
 
             self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
@@ -606,7 +606,7 @@ class Compiler:
             type_r = self.generate_expression(node[2], r=r)
             self.code += f"pop ${r+1}\n"
             if TYPE_SIZES[type_l] != 1:
-                self.code += f"mul ${r} {TYPE_SIZES[type_l]}\nadd $13 ${r+1}\n"
+                self.code += f"mul {TYPE_SIZES[type_l]} ${r}\nadd $13 ${r+1}\n"
             else:
                 self.code += f"add ${r} ${r+1}\n"
             self.code += f"ld{TYPE_DIRECTIVES[type_l][0]} ${r+1} ${r}\n"
