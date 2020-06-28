@@ -335,7 +335,7 @@ impl Vm {
             0x2D => { // CNQ a b
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
                 let (a, b) = (ab >> 4, ab & 0xF);
-                self.cmp = self.registers[a as usize] == self.registers[b as usize];
+                self.cmp = self.registers[a as usize] != self.registers[b as usize];
                 2
             },
             0x2E => { // CGT a b
