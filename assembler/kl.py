@@ -335,7 +335,7 @@ class Compiler:
             self.funcs[node[2].value] = {
                 "node": node,
                 "type": node[1].value,
-                "args": [], # TODO: function args
+                "args": [arg[0].value for arg in node[3]],
             }
         
         elif node[0].value == "while":
@@ -629,8 +629,12 @@ class Compiler:
         elif node[0].value in self.funcs:
             func = self.funcs[node[0].value]
 
-            for arg in reversed(node[1:]):
-                self.generate_expression(arg, r=r)
+            if len(node) - 1 != len(func["args"]):
+                raise CompileError("wrong number of arguments", node)
+
+            for (arg, param) in zip(reversed(node[1:]), reversed(func["args"])):
+                type = self.generate_expression(arg, r=r)
+                self.merge_types(type, param, arg)
                 self.code += f"push ${r}\n"
             self.code += f"call #{node[0]}\n"
             if r != 1:
