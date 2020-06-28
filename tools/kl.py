@@ -114,6 +114,7 @@ def parse(code, line=1, col=1):
                     line, col - len(current) - 1
                 ))
                 string = False
+                current = ""
                 continue
 
             current += char
@@ -195,7 +196,7 @@ class CompileError(Exception):
         self.node = node
 
 class Compiler:
-    def __init__(self, path="<unknown>", comment=False, type_checking="strict"):
+    def __init__(self, path="<unknown>", comment=False, type_checking="loose"):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
         self.vars = [{}] # Stores variables and scopes (first scope is global)
@@ -626,6 +627,16 @@ class Compiler:
 
             return "uint32"
 
+        elif node[0].value == "asm":
+            if len(node) == 1:
+                raise CompileError("wrong number of arguments", node)
+                
+            for arg in node[1:]:
+                if arg.type != "list" or len(set([val.type for val in arg.value])) != 1:
+                    raise CompileError("inline assembly must be string or list of bytes", arg)
+
+                self.code += "".join([chr(val.value) for val in arg.value]) + "\n"
+
         elif node[0].value in self.funcs:
             func = self.funcs[node[0].value]
 
@@ -650,7 +661,7 @@ class Compiler:
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)
 @click.option("--comment", is_flag=True, default=False, help="Adds comment lines to the generated assembly code")
-@click.option("--type-checking", default="strict", help="Type checking mode [strict/loose/off]")
+@click.option("--type-checking", default="loose", help="Type checking mode [strict/loose/off]")
 def run(files, comment, type_checking):
     compiler = Compiler(comment=comment, type_checking=type_checking)
 
