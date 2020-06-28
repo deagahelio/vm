@@ -1,4 +1,4 @@
-WORD: /[a-zA-Z_-]\w*/
+WORD: /[a-zA-Z_\-][\w\-\.]*/
 NUMBER: /\d+/
 _NEWLINE: /\r?\n/
 
@@ -59,11 +59,15 @@ instruction: "nop"                      -> i_nop
            | "bt"    _imm               -> i_bti
            | "bf"    _imm               -> i_bfi
            | "call"  _imm               -> i_calli
+           | "cgtq"  register register  -> i_cgtq
+           | "cltq"  register register  -> i_cltq
            | "ceq"   register register  -> i_ceq
            | "cnq"   register register  -> i_cnq
            | "cgt"   register register  -> i_cgt
            | "clt"   register register  -> i_clt
            | "mov"   _imm register      -> i_movi
+           | "cgtq"  register _imm      -> i_cgtqi
+           | "cltq"  register _imm      -> i_cltqi
            | "ceq"   register _imm      -> i_ceqi
            | "cnq"   register _imm      -> i_cnqi
            | "cgt"   register _imm      -> i_cgti

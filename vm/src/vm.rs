@@ -326,6 +326,18 @@ impl Vm {
                 self.ip = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
                 0
             },
+            0x2A => { // CGTQ a b
+                let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
+                let (a, b) = (ab >> 4, ab & 0xF);
+                self.cmp = self.registers[a as usize] >= self.registers[b as usize];
+                2
+            },
+            0x2B => { // CLTQ a b
+                let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
+                let (a, b) = (ab >> 4, ab & 0xF);
+                self.cmp = self.registers[a as usize] <= self.registers[b as usize];
+                2
+            },
             0x2C => { // CEQ a b
                 let ab = unwrap_or_return!(self.memory.read_u8(self.ip + 1), Err(Exception::InvalidOpcode));
                 let (a, b) = (ab >> 4, ab & 0xF);
@@ -357,6 +369,14 @@ impl Vm {
                 match opcode2 >> 4 {
                     0x1 => { // MOVI imm a
                         self.registers[a as usize] = imm;
+                        6
+                    },
+                    0xA => { // CGTQI a imm
+                        self.cmp = self.registers[a as usize] >= imm;
+                        6
+                    },
+                    0xB => { // CLTQI a imm
+                        self.cmp = self.registers[a as usize] <= imm;
                         6
                     },
                     0xC => { // CEQI a imm
