@@ -46,7 +46,7 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
-        if self.framebuffer.is_some() && (0x100000..0x1fffffc).contains(&address) {
+        if self.framebuffer.is_some() && (0x100000..0x20fffff).contains(&address) {
             self.framebuffer_queue.push((address, value));
         }
         self.bytes.get_mut(address as usize).map(|old_value| std::mem::replace(old_value, value))
