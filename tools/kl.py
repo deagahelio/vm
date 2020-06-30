@@ -196,7 +196,7 @@ class CompileError(Exception):
         self.node = node
 
 class Compiler:
-    def __init__(self, path="<unknown>", comment=False, type_checking="loose"):
+    def __init__(self, path="<unknown>", comment=False, type_checking="loose", import_mode=False):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
         self.vars = [{}] # Stores variables and scopes (first scope is global)
@@ -208,6 +208,7 @@ class Compiler:
         self.comment = comment # When set to true, will generate comments for the assembly code
 
         self.type_checking = type_checking # Type checking mode. [strict/loose/off]
+        self.import_mode = import_mode # When in import mode, compiler doesn't generate any code
     
     def warning(self, message, node):
         click.echo(f"WARNING: {message} ({self.path}:{node.line}:{node.col})", err=True)
@@ -240,17 +241,30 @@ class Compiler:
 
     def compile(self, ast):
         self.code = ""
+        self.funcs = {}
+        self.vars = [{}]
+        self.sp_offset = 0
         self.line = 0
+
         if self.source_code:
             self.source_code = self.source_code.split("\n")
 
         for node in ast:
-            if node.type != "list":
-                raise CompileError("top-level expression must be list", node)
-
             self.generate_expression(node, root=True)
     
     def generate_expression(self, node, root=False, statement=False, r=1):
+        top_level = ["fn", "static", "array", "import"]
+
+        if root:
+            if node.type != "list":
+                raise CompileError("top-level expression must be list", node)
+        
+            if node[0].value not in top_level + ["asm"]:
+                raise CompileError("invalid top-level expression", node)
+
+        elif node.type == "list" and node[0].value in top_level:
+            raise CompileError("expression must be top-level", node)
+
         if self.comment and node.line > self.line:
             self.line = node.line
 
@@ -284,6 +298,29 @@ class Compiler:
             
             raise CompileError("undefined variable", node)
 
+        elif node[0].value == "import":
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+                
+            if node[1].type != "list":
+                raise CompileError("file name must be string or list of bytes", node)
+
+            if self.import_mode:
+                return
+
+            path = "".join([chr(val.value) for val in node[1].value])
+            with open(path, "r") as f:
+                code = f.read()
+                compiler = Compiler(path=path, import_mode=True)
+                compiler.source_code = code
+                compiler.compile(parse(code))
+
+                self.funcs = {**self.funcs, **compiler.funcs}
+                self.vars[0] = {**self.vars[0], **compiler.vars[0]}
+
+                for symbol in {**self.funcs, **self.vars[0]}.keys():
+                    self.code += f".import #{symbol}\n"
+
         elif node[0].value == "fn":
             if len(node) < 4:
                 raise CompileError("wrong number of arguments", node)
@@ -297,9 +334,6 @@ class Compiler:
             if node[3].type != "list":
                 raise CompileError("third argument must be parameter list", node)
             
-            if not root:
-                raise CompileError("function should have top-level declaration", node)
-
             self.sp_offset = 0
             self.vars.append({})
 
@@ -326,10 +360,11 @@ class Compiler:
                 }
                 arg_offset += 4
 
-            self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
-            for expr in node[4:]:
-                self.generate_expression(expr, statement=True, r=r)
-            self.code += "mov $12 $15\npop $12\nret\n"
+            if not self.import_mode:
+                self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
+                for expr in node[4:]:
+                    self.generate_expression(expr, statement=True, r=r)
+                self.code += "mov $12 $15\npop $12\nret\n"
 
             self.vars.pop()
 
@@ -380,20 +415,18 @@ class Compiler:
             if node[2].type != "word":
                 raise CompileError("invalid variable name", node)
 
-            if not root:
-                raise CompileError("static variable should have top-level declaration", node)
-
             if node[2].value in self.vars[0]:
                 raise CompileError("cannot declare variable twice", node)
 
             if len(node) == 4 and node[3].type != "int":
                 raise CompileError("static variable must be integer", node)
 
-            self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
-            if len(node) == 3:
-                self.code += "0\n"
-            else:
-                self.code += f"{node[3]}\n"
+            if not self.import_mode:
+                self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+                if len(node) == 3:
+                    self.code += "0\n"
+                else:
+                    self.code += f"{node[3]}\n"
 
             self.vars[0][node[2].value] = {
                 "global": True, 
@@ -412,19 +445,17 @@ class Compiler:
             if node[2].type != "word":
                 raise CompileError("invalid array name", node)
 
-            if not root:
-                raise CompileError("array should have top-level declaration", node)
-
             if node[2].value in self.vars[0]:
                 raise CompileError("cannot declare variable twice", node)
 
-            self.code += f".export #{node[2]}\n#{node[2]}:\n" 
+            if not self.import_mode:
+                self.code += f".export #{node[2]}\n#{node[2]}:\n" 
 
-            for expr in node[3]:
-                if expr.type != "int":
-                    raise CompileError("array element must be integer literal", node)
+                for expr in node[3]:
+                    if expr.type != "int":
+                        raise CompileError("array element must be integer literal", node)
 
-                self.code += f".{TYPE_DIRECTIVES[node[1].value]} {expr}\n"
+                    self.code += f".{TYPE_DIRECTIVES[node[1].value]} {expr}\n"
 
             self.vars[0][node[2].value] = {
                 "global": True, 
@@ -442,9 +473,6 @@ class Compiler:
 
             if node[2].type != "word":
                 raise CompileError("invalid variable name", node)
-
-            if root:
-                raise CompileError("local variable cannot have top-level declaration", node)
 
             if not statement:
                 raise CompileError("local variable cannot be declared in expression", node)
@@ -630,12 +658,13 @@ class Compiler:
         elif node[0].value == "asm":
             if len(node) == 1:
                 raise CompileError("wrong number of arguments", node)
-                
-            for arg in node[1:]:
-                if arg.type != "list" or len(set([val.type for val in arg.value])) != 1:
-                    raise CompileError("inline assembly must be string or list of bytes", arg)
+            
+            if not self.import_mode:
+                for arg in node[1:]:
+                    if arg.type != "list" or len(set([val.type for val in arg.value])) != 1:
+                        raise CompileError("inline assembly must be string or list of bytes", arg)
 
-                self.code += "".join([chr(val.value) for val in arg.value]) + "\n"
+                    self.code += "".join([chr(val.value) for val in arg.value]) + "\n"
 
         elif node[0].value in self.funcs:
             func = self.funcs[node[0].value]
