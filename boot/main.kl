@@ -1,11 +1,6 @@
 (import "graphics.kl")
 
-(array uint8 hello "Hello world!")
-
 (fn void main ()
-    (local uint32 i)
-    (while (< i 10)
-        (draw-string (addr hello) (len-var hello))
-        (set-var i (+ i 1))
-    )
+    (local uint32 hello (addr (data uint8 "Hello world!")))
+    (draw-string hello 5)
 )

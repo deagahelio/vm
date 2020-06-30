@@ -1,4 +1,4 @@
-(array uint8 font-data (
+(static uint8 font-data (
     0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00   ; U+0000 nul
     0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00   ; U+0001
     0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00   ; U+0002
@@ -167,9 +167,13 @@
         (draw-character (get-8 (+ string i)))
         (set-var cursor-x (+ cursor-x 8))
         (cond ((>= cursor-x width)
-            (set-var cursor-x 0)
-            (set-var cursor-y (+ cursor-y 8))
+            (newline)
         ))
         (set-var i (+ i 1))
     )
+)
+
+(fn void newline ()
+    (set-var cursor-x 0)
+    (set-var cursor-y (+ cursor-y 8))
 )
