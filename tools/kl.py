@@ -196,7 +196,7 @@ class CompileError(Exception):
         self.node = node
 
 class Compiler:
-    def __init__(self, path="<unknown>", comment=False, type_checking="loose", import_mode=False):
+    def __init__(self, path="<unknown>", comment=False, type_checking="loose", definitions_mode=False):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
         self.vars = [{}] # Stores variables and scopes (first scope is global)
@@ -208,7 +208,7 @@ class Compiler:
         self.comment = comment # When set to true, will generate comments for the assembly code
 
         self.type_checking = type_checking # Type checking mode. [strict/loose/off]
-        self.import_mode = import_mode # When in import mode, compiler doesn't generate any code
+        self.definitions_mode = definitions_mode # When in definitions mode, compiler doesn't generate any code
     
     def warning(self, message, node):
         click.echo(f"WARNING: {message} ({self.path}:{node.line}:{node.col})", err=True)
@@ -240,14 +240,20 @@ class Compiler:
             raise CompileError(f"cannot merge types '{l}' and '{r}'", node)
 
     def compile(self, ast):
-        self.code = ""
-        self.funcs = {}
-        self.vars = [{}]
-        self.sp_offset = 0
-        self.line = 0
+        if not self.definitions_mode:
+            self.definitions_mode = True
+            self.compile(ast)
+            self.definitions_mode = False
 
-        if self.source_code:
-            self.source_code = self.source_code.split("\n")
+        else:
+            self.code = ""
+            self.funcs = {}
+            self.vars = [{}]
+            self.sp_offset = 0
+            self.line = 0
+
+            if self.source_code:
+                self.source_code = self.source_code.split("\n")
 
         for node in ast:
             self.generate_expression(node, root=True)
@@ -265,7 +271,7 @@ class Compiler:
         elif node.type == "list" and node[0].value in top_level:
             raise CompileError("expression must be top-level", node)
 
-        if self.comment and node.line > self.line:
+        if self.comment and not self.definitions_mode and node.line > self.line:
             self.line = node.line
 
             self.code += f"; >>> {self.path}:{node.line}"
@@ -305,13 +311,13 @@ class Compiler:
             if node[1].type != "list":
                 raise CompileError("file name must be string or list of bytes", node)
 
-            if self.import_mode:
+            if self.definitions_mode:
                 return
 
             path = "".join([chr(val.value) for val in node[1].value])
             with open(path, "r") as f:
                 code = f.read()
-                compiler = Compiler(path=path, import_mode=True)
+                compiler = Compiler(path=path, definitions_mode=True)
                 compiler.source_code = code
                 compiler.compile(parse(code))
 
@@ -334,45 +340,49 @@ class Compiler:
             if node[3].type != "list":
                 raise CompileError("third argument must be parameter list", node)
             
-            self.sp_offset = 0
-            self.vars.append({})
+            if self.definitions_mode:
+                if node[2].value in self.funcs:
+                    raise CompileError("cannot declare function twice", node)
 
-            arg_offset = 8
-            for arg in node[3]:
-                if arg.type != "list":
-                    raise CompileError("invalid parameter definition", node)
+                arg_offset = 8
+                for arg in node[3]:
+                    if arg.type != "list":
+                        raise CompileError("invalid parameter definition", node)
 
-                if len(arg) != 2:
-                    raise CompileError("wrong number of arguments", node)
+                    if len(arg) != 2:
+                        raise CompileError("wrong number of arguments", node)
 
-                if arg[0].value not in TYPES:
-                    raise CompileError("first argument must be type", node)
+                    if arg[0].value not in TYPES:
+                        raise CompileError("first argument must be type", node)
 
-                if arg[1].type != "word":
-                    raise CompileError("invalid parameter name", node)
+                    if arg[1].type != "word":
+                        raise CompileError("invalid parameter name", node)
 
-                self.vars[-1][arg[1].value] = {
-                    "global": False, 
-                    "offset": arg_offset,
-                    "node": arg,
-                    "type": arg[0].value,
-                    "length": 1,
+                    self.vars[-1][arg[1].value] = {
+                        "global": False, 
+                        "offset": arg_offset,
+                        "node": arg,
+                        "type": arg[0].value,
+                        "length": 1,
+                    }
+                    arg_offset += 4
+
+                self.funcs[node[2].value] = {
+                    "node": node,
+                    "type": node[1].value,
+                    "args": [arg[0].value for arg in node[3]],
                 }
-                arg_offset += 4
 
-            if not self.import_mode:
+            else:
+                self.sp_offset = 0
+                self.vars.append({})
+
                 self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
                 for expr in node[4:]:
                     self.generate_expression(expr, statement=True, r=r)
                 self.code += "mov $12 $15\npop $12\nret\n"
 
-            self.vars.pop()
-
-            self.funcs[node[2].value] = {
-                "node": node,
-                "type": node[1].value,
-                "args": [arg[0].value for arg in node[3]],
-            }
+                self.vars.pop()
         
         elif node[0].value == "while":
             if len(node) == 1:
@@ -415,55 +425,41 @@ class Compiler:
             if node[2].type != "word":
                 raise CompileError("invalid variable name", node)
 
-            if node[2].value in self.vars[0]:
-                raise CompileError("cannot declare variable twice", node)
+            if len(node) == 4 and node[3].type not in ("int", "list"):
+                raise CompileError("static variable must be integer or array of integers", node)
 
-            if len(node) == 4 and node[3].type != "int":
-                raise CompileError("static variable must be integer", node)
+            if self.definitions_mode:
+                if node[2].value in self.vars[0]:
+                    raise CompileError("cannot declare variable twice", node)
 
-            if not self.import_mode:
-                self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+                self.vars[0][node[2].value] = {
+                    "global": True, 
+                    "node": node,
+                    "type": node[1].value,
+                    "length": len(node[2]) if node[2].type == "list" else 1,
+                }
+
+            else:
                 if len(node) == 3:
-                    self.code += "0\n"
+                    self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} 0\n"
+
                 else:
-                    self.code += f"{node[3]}\n"
+                    if node[3].type == "int":
+                        self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+                        if len(node) == 3:
+                            self.code += "0\n"
+                        else:
+                            self.code += f"{node[3]}\n"
 
-            self.vars[0][node[2].value] = {
-                "global": True, 
-                "node": node,
-                "type": node[1].value,
-                "length": 1,
-            }
+                    else:
+                        self.code += f".export #{node[2]}\n#{node[2]}:\n" 
+
+                        for expr in node[3]:
+                            if expr.type != "int":
+                                raise CompileError("array element must be integer literal", node)
+
+                            self.code += f".{TYPE_DIRECTIVES[node[1].value]} {expr}\n"
         
-        elif node[0].value == "array":
-            if len(node) != 4:
-                raise CompileError("wrong number of arguments", node)
-
-            if node[1].value not in TYPES:
-                raise CompileError("first argument must be type", node)
-
-            if node[2].type != "word":
-                raise CompileError("invalid array name", node)
-
-            if node[2].value in self.vars[0]:
-                raise CompileError("cannot declare variable twice", node)
-
-            if not self.import_mode:
-                self.code += f".export #{node[2]}\n#{node[2]}:\n" 
-
-                for expr in node[3]:
-                    if expr.type != "int":
-                        raise CompileError("array element must be integer literal", node)
-
-                    self.code += f".{TYPE_DIRECTIVES[node[1].value]} {expr}\n"
-
-            self.vars[0][node[2].value] = {
-                "global": True, 
-                "node": node,
-                "type": node[1].value,
-                "length": len(node[3]),
-            }
-
         elif node[0].value == "local":
             if len(node) not in (4, 3):
                 raise CompileError("wrong number of arguments", node)
@@ -649,7 +645,7 @@ class Compiler:
                 raise CompileError("first argument must be variable name", node)
 
             if node[1].value not in self.vars[0]:
-                raise CompileError("undefined variable", node)
+                raise CompileError("undefined static variable", node)
 
             self.code += f"mov {self.vars[0][node[1].value]['length']} ${r}\n"
 
@@ -659,12 +655,28 @@ class Compiler:
             if len(node) == 1:
                 raise CompileError("wrong number of arguments", node)
             
-            if not self.import_mode:
+            if not self.definitions_mode:
                 for arg in node[1:]:
-                    if arg.type != "list" or len(set([val.type for val in arg.value])) != 1:
+                    if arg.type != "list" or set([val.type for val in arg.value]) != set(["int"]):
                         raise CompileError("inline assembly must be string or list of bytes", arg)
 
                     self.code += "".join([chr(val.value) for val in arg.value]) + "\n"
+
+        elif node[0].value == "data":
+            if len(node) != 3:
+                raise CompileError("wrong number of arguments", node)
+            
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be type", node)
+            
+            if node[2].type == "int":
+                self.code = f"#__data_{node.id}:\n.{TYPE_DIRECTIVES[node[1].value]} {node[2]}\n" + self.code
+            elif node[2].type == "list" and set([val.type for val in node[2].value]) == set(["int"]):
+                code = "\n".join([f".{TYPE_DIRECTIVES[node[1].value]} {i}" for i in node[2].value])
+                self.code = f"#__data_{node.id}:\n{code}\n" + self.code
+            else:
+                raise CompileError("invalid data type", node)
+            self.code += f"mov #__data_{node.id} ${r+1}\nld{TYPE_DIRECTIVES[node[1].value][0]} ${r+1} ${r}\n"
 
         elif node[0].value in self.funcs:
             func = self.funcs[node[0].value]
