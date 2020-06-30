@@ -3,6 +3,7 @@
 import lark
 import click
 import struct
+from pathlib import Path
 
 INSTRUCTIONS = {
     "nop":   {"operands": "",   "opcode": b"\x00"},
@@ -206,7 +207,7 @@ class Assembler:
 @click.argument("files", type=click.File("r"), required=True, nargs=-1)
 @click.option("--output", "-o", type=click.File("wb"), required=True, help="Output binary to write to.")
 def run(files, output):
-    with open("grammar.lark", "r") as f:
+    with open(Path(__file__).parent / "grammar.lark", "r") as f:
         parser = lark.Lark(f.read(), start="program", parser="lalr")
 
     assembler = Assembler()
