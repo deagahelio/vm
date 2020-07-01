@@ -249,7 +249,6 @@ class Compiler:
             self.code = ""
             self.funcs = {}
             self.vars = [{}]
-            self.sp_offset = 0
             self.line = 0
 
             if self.source_code:
@@ -317,9 +316,12 @@ class Compiler:
             path = "".join([chr(val.value) for val in node[1].value[:-1]])
             with open(path, "r") as f:
                 code = f.read()
-                compiler = Compiler(path=path, definitions_mode=True)
-                compiler.source_code = code
+                compiler = Compiler(definitions_mode=True)
+
+                old_path = self.path
+                self.path = path
                 compiler.compile(parse(code))
+                self.path = old_path
 
                 self.funcs = {**self.funcs, **compiler.funcs}
                 self.vars[0] = {**self.vars[0], **compiler.vars[0]}
@@ -745,9 +747,9 @@ def run(files, comment, type_checking):
         try:
             compiler.compile(ast)
         except CompileError as e:
-            click.echo(f"ERROR: {e.message} ({file}:{e.node.line}:{e.node.col})", err=True)
+            click.echo(f"ERROR: {e.message} ({compiler.path}:{e.node.line}:{e.node.col})", err=True)
 
-            with open(file, "r") as f:
+            with open(compiler.path, "r") as f:
                 click.echo(f.readlines()[e.node.line - 1][:-1], err=True)
                 click.echo(" " * (e.node.col - 1) + "^", err=True)
 
