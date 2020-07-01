@@ -161,9 +161,9 @@
     )
 )
 
-(fn void draw-string ((uint32 string) (uint32 len))
+(fn void draw-string ((uint32 string))
     (local uint32 i)
-    (while (!= i len)
+    (while (!= (elem-8 string i) 0)
         (draw-character (get-8 (+ string i)))
         (set-var cursor-x (+ cursor-x 8))
         (cond ((>= cursor-x width)

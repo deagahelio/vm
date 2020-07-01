@@ -1,6 +1,5 @@
 (import "graphics.kl")
 
 (fn void main ()
-    (local uint32 hello (addr (data uint8 "Hello world!")))
-    (draw-string hello 5)
+    (draw-string (addr (data uint8 "Null terminated string/,.")))
 )

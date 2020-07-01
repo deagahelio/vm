@@ -109,7 +109,7 @@ def parse(code, line=1, col=1):
                 continue
             elif char == "\"":
                 ast.append(Node(
-                    [Node(ord(char), "int", line, col - len(current) - 1) for char in current],
+                    [Node(ord(char), "int", line, col - len(current) - 1) for char in (current + chr(0))],
                     "list",
                     line, col - len(current) - 1
                 ))
@@ -314,7 +314,7 @@ class Compiler:
             if self.definitions_mode:
                 return
 
-            path = "".join([chr(val.value) for val in node[1].value])
+            path = "".join([chr(val.value) for val in node[1].value[:-1]])
             with open(path, "r") as f:
                 code = f.read()
                 compiler = Compiler(path=path, definitions_mode=True)
@@ -637,6 +637,32 @@ class Compiler:
 
             return type_l
         
+        elif node[0].value in ("elem-8", "elem-16", "elem-32"):
+            if len(node) != 3:
+                raise CompileError("wrong number of arguments", node)
+
+            size = {
+                "elem-8": 1,
+                "elem-16": 2,
+                "elem-32": 4,
+            }[node[0].value]
+
+            self.generate_expression(node[1], r=r)
+            self.code += f"push ${r}\n"
+            self.generate_expression(node[2], r=r)
+            self.code += f"pop ${r+1}\n"
+            if size != 1:
+                self.code += f"mul {size} ${r}\nadd $13 ${r+1}\n"
+            else:
+                self.code += f"add ${r} ${r+1}\n"
+            self.code += f"ld{SIZE_DIRECTIVES[size][0]} ${r+1} ${r}\n"
+
+            return {
+                1: "uint8",
+                2: "uint16",
+                4: "uint32",
+            }[size]
+        
         elif node[0].value == "len-var":
             if len(node) != 2:
                 raise CompileError("wrong number of arguments", node)
@@ -660,7 +686,7 @@ class Compiler:
                     if arg.type != "list" or set([val.type for val in arg.value]) != set(["int"]):
                         raise CompileError("inline assembly must be string or list of bytes", arg)
 
-                    self.code += "".join([chr(val.value) for val in arg.value]) + "\n"
+                    self.code += "".join([chr(val.value) for val in arg.value[:-1]]) + "\n"
 
         elif node[0].value == "data":
             if len(node) != 3:
@@ -677,6 +703,8 @@ class Compiler:
             else:
                 raise CompileError("invalid data type", node)
             self.code += f"mov #__data_{node.id} ${r+1}\nld{TYPE_DIRECTIVES[node[1].value][0]} ${r+1} ${r}\n"
+
+            return node[1].value
 
         elif node[0].value in self.funcs:
             func = self.funcs[node[0].value]
