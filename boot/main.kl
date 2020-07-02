@@ -1,5 +1,9 @@
 (import "graphics.kl")
+(import "device.kl")
+
+(static uint8 current-device (zero device))
 
 (fn void main ()
-    (draw-string (addr (data uint8 "Null terminated string/,.")))
+    (device-scan &current-device 1)
+    (device-print &current-device)
 )
