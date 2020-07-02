@@ -202,12 +202,15 @@ class CompileError(Exception):
         self.node = node
 
 class Compiler:
-    def __init__(self, path="<unknown>", comment=False, type_checking="loose", definitions_mode=False):
+    def __init__(self, path="<unknown>", comment=False, type_checking="loose", definitions_mode=False, import_mode=False):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
         self.structs = {} # Stores struct definitions
         self.vars = [{}] # Stores variables and scopes (first scope is global)
         self.sp_offset = 0 # Keeps track of distance from base of stack frame to store local variables
+        self.directives = {
+            "private": False,
+        }
 
         self.path = path # Path to source code file
         self.source_code = None # Contents of source code file to generate comments. Optional, must be set manually
@@ -216,6 +219,7 @@ class Compiler:
 
         self.type_checking = type_checking # Type checking mode. [strict/loose/off]
         self.definitions_mode = definitions_mode # When in definitions mode, compiler doesn't generate any code
+        self.import_mode = import_mode # Set when the compiler is being used to import definitions
     
     def warning(self, message, node):
         click.echo(f"WARNING: {message} ({self.path}:{node.line}:{node.col})", err=True)
@@ -294,7 +298,7 @@ class Compiler:
             if node.type != "list":
                 raise CompileError("top-level expression must be list", node)
         
-            if node[0].value not in top_level + ["asm"]:
+            if (node[0].value not in top_level + ["asm"]) and (node[0].value[0] != "@"):
                 raise CompileError("invalid top-level expression", node)
 
         elif node.type == "list" and node[0].value in top_level:
@@ -347,6 +351,13 @@ class Compiler:
             
             raise CompileError("undefined variable", node)
 
+        elif node[0].value == "@private":
+            if len(node) != 1:
+                raise CompileError("wrong number of arguments", node)
+
+            if self.import_mode:
+                self.directives["private"] = True
+
         elif node[0].value == "import":
             if len(node) != 2:
                 raise CompileError("wrong number of arguments", node)
@@ -360,7 +371,7 @@ class Compiler:
             path = "".join([chr(val.value) for val in node[1].value[:-1]])
             with open(path, "r") as f:
                 code = f.read()
-                compiler = Compiler(definitions_mode=True)
+                compiler = Compiler(definitions_mode=True, import_mode=True)
 
                 old_path = self.path
                 self.path = path
@@ -407,11 +418,14 @@ class Compiler:
                     if arg[1].value in self.vars[-1]:
                         raise CompileError("cannot define parameter twice", node)
 
-                self.funcs[node[2].value] = {
-                    "node": node,
-                    "type": node[1].value,
-                    "args": [arg[0].value for arg in node[3]],
-                }
+                if not self.directives["private"]:
+                    self.funcs[node[2].value] = {
+                        "node": node,
+                        "type": node[1].value,
+                        "args": [arg[0].value for arg in node[3]],
+                    }
+
+                self.directives["private"] = False
 
             else:
                 self.sp_offset = 0
@@ -462,11 +476,14 @@ class Compiler:
                     fields.append({"name": field[1].value, "type": field[0].value})
                     size += TYPE_SIZES[field[0].value]
 
-                self.structs[node[1].value] = {
-                    "node": node,
-                    "fields": fields,
-                    "size": size,
-                }
+                if not self.directives["private"]:
+                    self.structs[node[1].value] = {
+                        "node": node,
+                        "fields": fields,
+                        "size": size,
+                    }
+
+                self.directives["private"] = False
         
         elif node[0].value == "while":
             if len(node) == 1:
@@ -516,12 +533,15 @@ class Compiler:
                 if node[2].value in self.vars[0]:
                     raise CompileError("cannot declare variable twice", node)
 
-                self.vars[0][node[2].value] = {
-                    "global": True, 
-                    "node": node,
-                    "type": node[1].value,
-                    "length": len(node[2]) if node[2].type == "list" else 1,
-                }
+                if not self.directives["private"]:
+                    self.vars[0][node[2].value] = {
+                        "global": True, 
+                        "node": node,
+                        "type": node[1].value,
+                        "length": len(node[2]) if node[2].type == "list" else 1,
+                    }
+
+                self.directives["private"] = False
 
             else:
                 if len(node) == 3:
