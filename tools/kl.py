@@ -289,6 +289,17 @@ class Compiler:
                             raise CompileError("invalid argument", node)
 
                         node.value = [Node(0, "int", node.line, node.col) for _ in range(size)]
+                
+                    elif node[0].value == "str":
+                        if len(node) != 2:
+                            raise CompileError("wrong number of arguments", node)
+
+                        if node[1].type != "list" or set([val.type for val in node[1].value]) != set(["int"]):
+                            raise CompileError("argument must be string or list of bytes", node)
+
+                        string = node[1]
+                        node.value = parse("addr (data uint8 ())", line=node.line, col=node.col)
+                        node[1].value[2] = string
 
             node.transform(f)
 
