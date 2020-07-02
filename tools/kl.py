@@ -76,6 +76,12 @@ class Node():
     def id(self):
         return f"{self.line}_{self.col}"
 
+    def transform(self, f):
+        f(self)
+        if self.type == "list":
+            for node in self.value:
+                node.transform(f)
+
 def parse(code, line=1, col=1):
     ast = []
     current = ""
@@ -199,6 +205,7 @@ class Compiler:
     def __init__(self, path="<unknown>", comment=False, type_checking="loose", definitions_mode=False):
         self.code = "" # Generated assembly code
         self.funcs = {} # Dict of function declaration nodes
+        self.structs = {} # Stores struct definitions
         self.vars = [{}] # Stores variables and scopes (first scope is global)
         self.sp_offset = 0 # Keeps track of distance from base of stack frame to store local variables
 
@@ -216,6 +223,7 @@ class Compiler:
         click.echo(self.source_code[node.line - 1], err=True)
         click.echo(" " * (node.col - 1) + "^", err=True)
 
+    # TODO: fix
     def merge_types(self, l, r, node):
         if self.type_checking == "off":
             return
@@ -248,6 +256,7 @@ class Compiler:
         else:
             self.code = ""
             self.funcs = {}
+            self.structs = {}
             self.vars = [{}]
             self.line = 0
 
@@ -258,7 +267,28 @@ class Compiler:
             self.generate_expression(node, root=True)
     
     def generate_expression(self, node, root=False, statement=False, r=1):
-        top_level = ["fn", "static", "array", "import"]
+        if not self.definitions_mode and root:
+            # TODO: macros?
+            def f(node):
+                if node.type == "list" and len(node) > 0:
+                    if node[0].value == "zero":
+                        if len(node) != 2:
+                            raise CompileError("wrong number of arguments", node)
+                        
+                        if node[1].type == "int":
+                            size = node[1].value
+                        elif node[1].value in self.structs.keys():
+                            size = self.structs[node[1].value]["size"]
+                        elif node[1].value in TYPES:
+                            size = TYPE_SIZES[node[1].value]
+                        else:
+                            raise CompileError("invalid argument", node)
+
+                        node.value = [Node(0, "int", node.line, node.col) for _ in range(size)]
+
+            node.transform(f)
+
+        top_level = ["fn", "static", "array", "import", "struct"]
 
         if root:
             if node.type != "list":
@@ -285,19 +315,33 @@ class Compiler:
             return "int"
         
         elif node.type == "word":
+            addr = node.value[0] == "&"
+            if addr:
+                node.value = node.value[1:]
+
             for scope in reversed(self.vars):
                 if node.value in scope.keys():
                     var = scope[node.value]
 
                     if var["global"]:
-                        self.code += f"mov #{node.value} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
-                    else:
-                        self.code += f"mov $12 ${r+1}\n"
-                        if var["offset"] < 0:
-                            self.code += f"sub {-var['offset']} ${r+1}\n"
+                        if not addr:
+                            self.code += f"mov #{node.value} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
                         else:
-                            self.code += f"add {var['offset']} ${r+1}\n"
-                        self.code += f"ld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+                            self.code += f"mov #{node.value} ${r}\n"
+                    else:
+                        if not addr:
+                            self.code += f"mov $12 ${r+1}\n"
+                            if var["offset"] < 0:
+                                self.code += f"sub {-var['offset']} ${r+1}\n"
+                            else:
+                                self.code += f"add {var['offset']} ${r+1}\n"
+                            self.code += f"ld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+                        else:
+                            self.code += f"mov $12 ${r}\n"
+                            if var["offset"] < 0:
+                                self.code += f"sub {-var['offset']} ${r}\n"
+                            else:
+                                self.code += f"add {var['offset']} ${r}\n"
                     
                     return var["type"]
             
@@ -324,9 +368,10 @@ class Compiler:
                 self.path = old_path
 
                 self.funcs = {**self.funcs, **compiler.funcs}
+                self.structs = {**self.structs, **compiler.structs}
                 self.vars[0] = {**self.vars[0], **compiler.vars[0]}
 
-                for symbol in {**self.funcs, **self.vars[0]}.keys():
+                for symbol in {**compiler.funcs, **compiler.vars[0]}.keys():
                     self.code += f".import #{symbol}\n"
 
         elif node[0].value == "fn":
@@ -346,7 +391,6 @@ class Compiler:
                 if node[2].value in self.funcs:
                     raise CompileError("cannot declare function twice", node)
 
-                arg_offset = 8
                 for arg in node[3]:
                     if arg.type != "list":
                         raise CompileError("invalid parameter definition", node)
@@ -360,14 +404,8 @@ class Compiler:
                     if arg[1].type != "word":
                         raise CompileError("invalid parameter name", node)
 
-                    self.vars[-1][arg[1].value] = {
-                        "global": False, 
-                        "offset": arg_offset,
-                        "node": arg,
-                        "type": arg[0].value,
-                        "length": 1,
-                    }
-                    arg_offset += 4
+                    if arg[1].value in self.vars[-1]:
+                        raise CompileError("cannot define parameter twice", node)
 
                 self.funcs[node[2].value] = {
                     "node": node,
@@ -379,12 +417,56 @@ class Compiler:
                 self.sp_offset = 0
                 self.vars.append({})
 
+                arg_offset = 8
+                for arg in node[3]:
+                    self.vars[-1][arg[1].value] = {
+                        "global": False, 
+                        "offset": arg_offset,
+                        "node": arg,
+                        "type": arg[0].value,
+                        "length": 1,
+                    }
+                    arg_offset += 4
+
                 self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
                 for expr in node[4:]:
                     self.generate_expression(expr, statement=True, r=r)
                 self.code += "mov $12 $15\npop $12\nret\n"
 
                 self.vars.pop()
+
+        elif node[0].value == "struct":
+            if len(node) < 3:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word":
+                raise CompileError("first argument must be struct name", node)
+
+            if self.definitions_mode:
+                fields = []
+                size = 0
+
+                for field in node[2:]:
+                    if len(field) != 2:
+                        raise CompileError("invalid struct field definition", node)
+
+                    if field[0].value not in TYPES:
+                        raise CompileError("first argument must be type", node)
+
+                    if field[1].type != "word":
+                        raise CompileError("invalid struct field name", node)
+
+                    if field[1].value in self.vars[-1]:
+                        raise CompileError("cannot define struct field twice", node)
+
+                    fields.append({"name": field[1].value, "type": field[0].value})
+                    size += TYPE_SIZES[field[0].value]
+
+                self.structs[node[1].value] = {
+                    "node": node,
+                    "fields": fields,
+                    "size": size,
+                }
         
         elif node[0].value == "while":
             if len(node) == 1:
@@ -590,6 +672,66 @@ class Compiler:
                 "d": "uint32",
             }[size]
 
+        elif node[0].value in ("get", "set"):
+            if (node[0].value == "get" and len(node) != 3) or (node[0].value == "set" and len(node) != 4):
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word" or node[1].value.count(".") != 1:
+                raise CompileError("first argument must be struct field", node)
+
+            [struct_name, struct_field] = node[1].value.split(".")
+
+            if struct_name not in self.structs.keys():
+                raise CompileError("undefined struct", node)
+
+            struct = self.structs[struct_name]
+            offset = 0
+            found = False
+            type = None
+
+            for field in struct["fields"]:
+                if field["name"] == struct_field:
+                    found = True
+                    type = field["type"]
+                    break
+
+                offset += TYPE_SIZES[field["type"]]
+
+            if not found:
+                raise CompileError("undefined struct field", node)
+
+            if node[0].value == "get":
+                self.generate_expression(node[2], r=r)
+                self.code += f"mov ${r} ${r+1}\n"
+                if offset != 0:
+                    self.code += f"add {offset} ${r+1}\n"
+                self.code += f"ld{TYPE_DIRECTIVES[type][0]} ${r+1} ${r}\n"
+
+                return type
+            else:
+                self.generate_expression(node[2], r=r)
+                self.code += f"push ${r}\n"
+                type_r = self.generate_expression(node[3], r=r)
+                self.merge_types(type, type_r, node)
+                self.code += f"pop ${r+1}\n"
+                if offset != 0:
+                    self.code += f"add {offset} ${r+1}\n"
+                self.code += f"st{TYPE_DIRECTIVES[type][0]} ${r} ${r+1}\n"
+
+        elif node[0].value == "size":
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].value in self.structs.keys():
+                size = self.structs[node[1].value]["size"]
+            elif node[1].value in TYPES:
+                size = TYPE_SIZES[node[1].value]
+            else:
+                raise CompileError("invalid argument", node)
+
+            self.code += f"mov {size} ${r}\n"
+            return "uint32"
+
         elif node[0].value == "cast":
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
@@ -619,6 +761,12 @@ class Compiler:
             self.code += f"mov $0 ${r}\nbf #__bool_{node.id}_1\nmov 1 ${r}\n#__bool_{node.id}_1:\n"
 
             return "uint8"
+
+        elif node[0].value in ("true", "false"):
+            if len(node) != 1:
+                raise CompileError("wrong number of arguments", node)
+
+            self.code += {"true": "ceq", "false": "cnq"}[node[0].value] + " $0 $0\n"
         
         elif node[0].value == "elem-var":
             if len(node) != 3:
