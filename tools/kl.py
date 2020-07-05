@@ -83,117 +83,88 @@ class Node():
                 node.transform(f)
 
 def parse(code, line=1, col=1):
-    ast = []
-    current = ""
+    stack = []
+    current_list = Node([], "list", line, col)
+    current = None
     mode = "normal"
-    paren_level = 0
-    comment = False
-    string = False
-    char_ = False
     escape = False
 
-    first_line, first_col = old_line, old_col = line, col
+    first_line, first_col = line, col
 
-    for i, char in enumerate(code):
-        #print(f"{char}:{line}:{col} / {current}")
+    code += "\n"
 
+    for char in code:
         col += 1
         if char == "\n":
             line += 1
             col = 1
 
-        if comment:
+        if mode == "comment":
             if char == "\n":
-                comment = False
-            continue
+                mode = "normal"
 
-        elif string:
+        elif mode == "string":
             if escape:
+                # TODO: add escape sequences
                 escape = False
+
             elif char == "\\":
                 escape = True
                 continue
+
             elif char == "\"":
-                ast.append(Node(
-                    [Node(ord(char), "int", line, col - len(current) - 1) for char in (current + chr(0))],
-                    "list",
-                    line, col - len(current) - 1
-                ))
-                string = False
-                current = ""
+                current.value.append(Node(0, "int", line, col))
+                current_list.value.append(current)
+                mode = "normal"
+                current = None
                 continue
 
-            current += char
-            continue
+            current.value.append(Node(ord(char), "int", line, col))
 
-        elif char_:
-            ast.append(Node(ord(char), "int", line, col - 1))
-            char_ = False
-            continue
-
-        elif mode == "list":
-            if char == "(":
-                paren_level += 1
-
-            elif char == ")":
-                paren_level -= 1
-
-                if paren_level == 0:
-                    ast.append(parse(current, old_line, old_col))
-                    mode = "normal"
-                    current = ""
-                    continue
-
-            current += char
+        elif mode == "char":
+            current.value = ord(char)
+            current_list.value.append(current)
+            current = None
+            mode = "normal"
         
         elif mode == "normal":
-            if char == "\"":
-                string = True
-                current = ""
-                continue
+            if char in " \t\n\r()\"';" and current != None:
+                try:
+                    current.value = int(current.value, 0)
+                    current.type = "int"
+                except ValueError:
+                    pass
+
+                current_list.value.append(current)
+                current = None
+
+
+            if char == "(":
+                stack.append(current_list)
+                current_list = Node([], "list", line, col)
+
+            elif char == ")":
+                stack[-1].value.append(current_list)
+                current_list = stack.pop()
+
+            elif char == "\"":
+                mode = "string"
+                current = Node([], "list", line, col)
             
-            if char == "'":
-                char_ = True
-                current = ""
-                continue
+            elif char == "'":
+                mode = "char"
+                current = Node(0, "int", line, col)
 
-            elif char in " \t\n\r([;" or i == len(code) - 1:
-                if i == len(code) - 1:
-                    current += char
+            elif char == ";":
+                mode = "comment"
 
-                if current not in " \t\n\r([;" and current != "":
-                    node = Node(current, "word", line, col - len(current) - 1)
+            elif char not in " \t\n\r":
+                if current == None:
+                    current = Node("", "word", line, col)
 
-                    if node.value.startswith("0x"):
-                        node.value = int(node.value, 16)
-                        node.type = "int"
-                    elif node.value.startswith("0b"):
-                        node.value = int(node.value, 2)
-                        node.type = "int"
-                    elif node.value.startswith("0o"):
-                        node.value = int(node.value, 8)
-                        node.type = "int"
-                    elif node.value[0] in "0123456789":
-                        node.value = int(node.value)
-                        node.type = "int"
-
-                    ast.append(node)
-
-                current = ""
-
-                if char == "(":
-                    mode = "list"
-                    paren_level += 1
-                    old_line, old_col = line, col
-                
-                if char == ";":
-                    comment = True
-
-                continue
-
-            current += char
+                current.value += char
     
-    return Node(ast, "list", first_line, first_col)
+    return Node(current_list, "list", first_line, first_col)
 
 class CompileError(Exception):
     def __init__(self, message, node):
@@ -503,12 +474,18 @@ class Compiler:
             if not statement:
                 raise CompileError("while loop cannot be used in expression", node)
 
+            self.vars.append({})
+
             self.code += f"#__while_{node.id}:\n"
             self.generate_expression(node[1], r=r)
             self.code += f"bf #__while_{node.id}_end\n"
             for expr in node[2:]:
                 self.generate_expression(expr, statement=True, r=r)
+            for _ in self.vars[-1]:
+                self.code += "pop $0\n"
             self.code += f"b #__while_{node.id}\n#__while_{node.id}_end:\n"
+
+            self.vars.pop()
         
         elif node[0].value == "cond":
             if len(node) == 1:
