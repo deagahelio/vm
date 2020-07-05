@@ -11,15 +11,14 @@
     (uint32 limit-1)
 )
 
-(fn uint32 device-scan ((uint32 addr) (uint8 id))
+(fn uint32 device-scan ((uint8 id))
     (set-8 0xF0001 id)
     (set-8 0xF0000 0x01)
     (while (== (get-8 0xF0000) 0x02))
     (cond ((== (get-8 0xF0000) 0x01)
-        (bcopy 0xF0001 addr (size device))
-        (return 0)
+        (return 0xF0001)
     ))
-    (return 1)
+    (return 0)
 )
 
 (fn void device-print ((uint32 addr))
