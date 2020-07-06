@@ -150,7 +150,7 @@
     (local uint32 char-data (addr (elem-var font-data (* char 8))))
     (while (< char-y 8)
         (while (< char-x 8)
-            (cond ((== 1 (& 1 (>> (get-8 char-data) char-x)))
+            (cond (== 1 (& 1 (>> (get-8 char-data) char-x))) (
                 (draw-pixel (+ cursor-x char-x) (+ cursor-y char-y))
             ))
             (set-var char-x (+ char-x 1))
@@ -166,7 +166,7 @@
     (while (!= (elem-8 string i) 0)
         (draw-character (get-8 (+ string i)))
         (set-var cursor-x (+ cursor-x 8))
-        (cond ((>= cursor-x width)
+        (cond (>= cursor-x width) (
             (newline)
         ))
         (set-var i (+ i 1))
@@ -176,7 +176,7 @@
 (fn void draw-int ((uint32 int))
     (local uint32 buffer (addr (data uint8 (zero 11))))
     (local uint32 i 9)
-    (cond ((== int 0)
+    (cond (== int 0) (
         (set-8 (+ buffer i) '0)
         (set-var i (- i 1))
     ))

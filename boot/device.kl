@@ -15,7 +15,7 @@
     (set-8 0xF0001 id)
     (set-8 0xF0000 0x01)
     (while (== (get-8 0xF0000) 0x02))
-    (cond ((== (get-8 0xF0000) 0x01)
+    (cond (== (get-8 0xF0000) 0x01) (
         (return 0xF0001)
     ))
     (return 0)

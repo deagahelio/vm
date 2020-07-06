@@ -488,21 +488,42 @@ class Compiler:
             self.vars.pop()
         
         elif node[0].value == "cond":
-            if len(node) == 1:
+            if len(node) == 1 or len(node) % 2 != 1:
                 raise CompileError("wrong number of arguments", node)
 
             if not statement:
                 raise CompileError("cond statement cannot be used in expression", node)
 
-            for i, block in enumerate(node[1:]):
+            for i, block in enumerate(chunks(node[1:], 2)):
                 if len(block) == 0:
                     raise CompileError("cond branch cannot be empty", node)
 
                 self.generate_expression(block[0], r=r)
                 self.code += f"bf #__cond_{node.id}_{i}\n"
-                for expr in block[1:]:
+                for expr in block[1]:
                     self.generate_expression(expr, statement=True, r=r)
                 self.code += f"#__cond_{node.id}_{i}:\n"
+
+        elif node[0].value == "switch":
+            if len(node) <= 2 or len(node) % 2 != 0:
+                raise CompileError("wrong number of arguments", node)
+
+            if not statement:
+                raise CompileError("switch statement cannot be used in expression", node)
+
+            self.generate_expression(node[1], r=r)
+            self.code += f"mov ${r} ${r+1}\n"
+            for i, block in enumerate(chunks(node[2:], 2)):
+                if len(block) == 0:
+                    raise CompileError("switch branch cannot be empty", node)
+
+                self.code += f"push ${r+1}\n"
+                self.generate_expression(block[0], r=r)
+                self.code += f"pop ${r+1}\nceq ${r} ${r+1}\nbf #__switch_{node.id}_{i}\n"
+                for expr in block[1]:
+                    self.generate_expression(expr, statement=True, r=r)
+                self.code += f"b #__switch_{node.id}_end\n#__switch_{node.id}_{i}:\n"
+            self.code += f"#__switch_{node.id}_end:\n"
             
         elif node[0].value == "static":
             if len(node) not in (4, 3):

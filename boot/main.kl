@@ -1,15 +1,21 @@
 (import "graphics.kl")
 (import "device.kl")
+(import "utils.kl")
 
 (static uint32 total-memory)
+(static uint8 disk-controller (zero device))
 
 (fn void main ()
     (local uint8 id 1)
     (while (!= id 255)
         (local uint32 device (device-scan id))
-        (cond ((!= device 0)
-            (cond ((== (get device.class device) 1)
+        (cond (!= device 0) (
+            (switch (get device.class device)
+            0x1 (
                 (set-var total-memory (get device.limit-0 device))
+            )
+            0x2 (
+                (bcopy device &disk-controller (size device))
             ))
             (device-print device)
             (draw-string (str "-----")) (newline)
@@ -18,4 +24,5 @@
     )
     (draw-string (str "Total memory: ")) (draw-int total-memory)
     (draw-string (str " (")) (draw-int (/ total-memory 1048576)) (draw-string (str "MiB)")) (newline)
+    (draw-int (get-8 (+ 1 (get device.base-address-0 &disk-controller))))
 )
