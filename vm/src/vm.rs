@@ -30,14 +30,14 @@ impl Vm {
         Self {
             memory: Memory::new(memory_size, framebuffer),
             registers: [0; 16],
-            ip: 0,
+            ip: 0x200,
             cmp: false,
         }
     }
 
-    pub fn load_from_file(&mut self, file_name: &str) -> std::io::Result<()> {
+    pub fn load_boot(&mut self, file_name: &str) -> std::io::Result<()> {
         let mut file = File::open(file_name)?;
-        file.read(&mut self.memory.bytes)?;
+        file.read(&mut self.memory.bytes[0x200..])?;
         Ok(())
     }
 
@@ -244,12 +244,12 @@ impl Vm {
                         }
                     },
                     0x6 => { // B a
-                        self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
+                        self.ip = self.ip.wrapping_add(self.registers[a as usize]);
                         0
                     },
                     0x7 => { // BT a
                         if self.cmp {
-                            self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
+                            self.ip = self.ip.wrapping_add(self.registers[a as usize]);
                             0
                         } else {
                             2
@@ -257,13 +257,13 @@ impl Vm {
                     },
                     0x8 => { // BF a
                         if !self.cmp {
-                            self.ip = (self.ip as i32).wrapping_add(self.registers[a as usize] as i32) as u32;
+                            self.ip = self.ip.wrapping_add(self.registers[a as usize]);
                             0
                         } else {
                             2
                         }
                     },
-                    0x9 => { // CALL a
+                    0x9 => { // JAL a
                         self.registers[15] = self.registers[15].wrapping_sub(4);
                         unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip + 2), Err(Exception::ProtectionFault));
                         self.ip = self.registers[a as usize];
@@ -301,12 +301,12 @@ impl Vm {
                 }
             },
             0x26 => { // BI imm
-                self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
+                self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
                 0
             },
             0x27 => { // BTI imm
                 if self.cmp {
-                    self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
+                    self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
                     0
                 } else {
                     5
@@ -314,13 +314,13 @@ impl Vm {
             },
             0x28 => { // BFI imm
                 if !self.cmp {
-                    self.ip = (self.ip as i32).wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)) as i32) as u32;
+                    self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
                     0
                 } else {
                     5
                 }
             },
-            0x29 => { // CALLI imm
+            0x29 => { // JALI imm
                 self.registers[15] = self.registers[15].wrapping_sub(4);
                 unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip + 5), Err(Exception::ProtectionFault));
                 self.ip = unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode));
@@ -370,6 +370,12 @@ impl Vm {
                     0x1 => { // MOVI imm a
                         self.registers[a as usize] = imm;
                         6
+                    },
+                    0x6 => { // BAL a
+                        self.registers[15] = self.registers[15].wrapping_sub(4);
+                        unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip + 2), Err(Exception::ProtectionFault));
+                        self.ip = self.ip.wrapping_add(self.registers[a as usize]);
+                        0
                     },
                     0xA => { // CGTQI a imm
                         self.cmp = self.registers[a as usize] >= imm;
@@ -425,6 +431,12 @@ impl Vm {
             0x35 => { // RET
                 self.ip = unwrap_or_return!(self.memory.read_u32(self.registers[15]), Err(Exception::ProtectionFault));
                 self.registers[15] = self.registers[15].wrapping_add(4);
+                0
+            },
+            0x36 => { // BALI imm
+                self.registers[15] = self.registers[15].wrapping_sub(4);
+                unwrap_or_return!(self.memory.write_u32(self.registers[15], self.ip + 5), Err(Exception::ProtectionFault));
+                self.ip = self.ip.wrapping_add(unwrap_or_return!(self.memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
                 0
             },
             _ => return Err(Exception::InvalidOpcode),

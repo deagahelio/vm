@@ -483,6 +483,7 @@ class Compiler:
                 self.generate_expression(expr, statement=True, r=r)
             for _ in self.vars[-1]:
                 self.code += "pop $0\n"
+                self.sp_offset += 4
             self.code += f"b #__while_{node.id}\n#__while_{node.id}_end:\n"
 
             self.vars.pop()
@@ -502,7 +503,8 @@ class Compiler:
                 self.code += f"bf #__cond_{node.id}_{i}\n"
                 for expr in block[1]:
                     self.generate_expression(expr, statement=True, r=r)
-                self.code += f"#__cond_{node.id}_{i}:\n"
+                self.code += f"b #__cond_{node.id}_end\n#__cond_{node.id}_{i}:\n"
+            self.code += f"#__cond_{node.id}_end:\n"
 
         elif node[0].value == "switch":
             if len(node) <= 2 or len(node) % 2 != 0:
@@ -895,7 +897,7 @@ class Compiler:
                 type = self.generate_expression(arg, r=r)
                 self.merge_types(type, param, arg)
                 self.code += f"push ${r}\n"
-            self.code += f"call #{node[0]}\n"
+            self.code += f"jal #{node[0]}\n"
             if r != 1:
                 self.code += f"mov $1 ${r}\n"
             for _ in node[1:]:

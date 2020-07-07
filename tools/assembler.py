@@ -45,7 +45,7 @@ INSTRUCTIONS = {
     "b":     {"operands": "r",  "opcode": b"\x20\x60"},
     "bt":    {"operands": "r",  "opcode": b"\x20\x70"},
     "bf":    {"operands": "r",  "opcode": b"\x20\x80"},
-    "call":  {"operands": "r",  "opcode": b"\x20\x90"},
+    "jal":   {"operands": "r",  "opcode": b"\x20\x90"},
     "pushi": {"operands": "i",  "opcode": b"\x21"},
     "ji":    {"operands": "i",  "opcode": b"\x23"},
     "jti":   {"operands": "i",  "opcode": b"\x24"},
@@ -53,7 +53,7 @@ INSTRUCTIONS = {
     "bi":    {"operands": "i",  "opcode": b"\x26"},
     "bti":   {"operands": "i",  "opcode": b"\x27"},
     "bfi":   {"operands": "i",  "opcode": b"\x28"},
-    "calli": {"operands": "i",  "opcode": b"\x29"},
+    "jali":  {"operands": "i",  "opcode": b"\x29"},
     "cgtq":  {"operands": "rr", "opcode": b"\x2A"},
     "cltq":  {"operands": "rr", "opcode": b"\x2B"},
     "ceq":   {"operands": "rr", "opcode": b"\x2C"},
@@ -61,6 +61,7 @@ INSTRUCTIONS = {
     "cgt":   {"operands": "rr", "opcode": b"\x2E"},
     "clt":   {"operands": "rr", "opcode": b"\x2F"},
     "movi":  {"operands": "ir", "opcode": b"\x30\x10"},
+    "bal":   {"operands": "r",  "opcode": b"\x30\x60"},
     "cgtqi": {"operands": "ri", "opcode": b"\x30\xA0"},
     "cltqi": {"operands": "ri", "opcode": b"\x30\xB0"},
     "ceqi":  {"operands": "ri", "opcode": b"\x30\xC0"},
@@ -72,6 +73,7 @@ INSTRUCTIONS = {
     "stwii": {"operands": "ii", "opcode": b"\x33"},
     "stdii": {"operands": "ii", "opcode": b"\x34"},
     "ret":   {"operands": "",   "opcode": b"\x35"},
+    "bali":  {"operands": "i",  "opcode": b"\x36"},
 }
 
 lark.Tree.__getitem__ = lambda self, index: self.children[index]
@@ -97,6 +99,8 @@ class Assembler:
         self.to_import = []
         self.to_export = []
 
+        self.pos_offset = 0
+    
     def preprocess(self, ast):
         self.symbols_def = {}
         self.symbols_use = {}
@@ -123,7 +127,11 @@ class Assembler:
             return ord(node[0][1])
         elif node.data == "label":
             # Keep track of this so we can fix the address later
-            self.symbols_use[len(self.code)] = (node[0], is_branch)
+            self.symbols_use[len(self.code)] = {
+                "pos": len(self.code) + self.pos_offset,
+                "symbol": node[0],
+                "is_branch": is_branch,
+            }
             # Set a temporary value
             return 0xFFFFFFFF
 
@@ -154,7 +162,7 @@ class Assembler:
                     r1 = int(node[0][0])
                     self.code[-1] = self.code[-1] | r1
                 elif instruction["operands"] == "i":
-                    imm = self.read_imm(node[0], is_branch=node.data in ("i_bi", "i_bti", "i_bfi"))
+                    imm = self.read_imm(node[0], is_branch=node.data in ("i_bi", "i_bti", "i_bfi", "i_bali"))
                     self.code += struct.pack("<I", imm)
                 elif instruction["operands"] == "ii":
                     imm1 = self.read_imm(node[0])
@@ -165,7 +173,7 @@ class Assembler:
                     click.echo(f"ERROR: duplicate symbol '{node[0][0]}'", err=True)
                     continue
                 else:
-                    self.symbols_def[node[0][0]] = len(self.code)
+                    self.symbols_def[node[0][0]] = len(self.code) + self.pos_offset
             elif node.data in ("d_byte", "d_word", "d_dword"):
                 format = {"d_byte": "B", "d_word": "H", "d_dword": "I"}[node.data]
                 if len(node.children) == 2:
@@ -179,20 +187,20 @@ class Assembler:
             self.symbols_def = self.global_symbols_def
             self.symbols_use = self.global_symbols_use
 
-        for pos_use, (symbol, is_branch) in self.symbols_use.items():
-            if symbol in self.symbols_def:
-                pos_def = self.symbols_def[symbol]
-            elif symbol in self.to_import and not final:
-                self.global_symbols_use[pos_use] = (symbol, is_branch)
+        for real_pos, symbol_use in self.symbols_use.items():
+            if symbol_use["symbol"] in self.symbols_def:
+                pos_def = self.symbols_def[symbol_use["symbol"]]
+            elif symbol_use["symbol"] in self.to_import and not final:
+                self.global_symbols_use[real_pos] = symbol_use
                 continue
             else:
-                click.echo(f"ERROR: unresolved symbol '{symbol}'", err=True)
+                click.echo(f"ERROR: unresolved symbol '{symbol_use['symbol']}'", err=True)
                 continue
 
-            if is_branch:
-                pos_def -= pos_use - 1
+            if symbol_use["is_branch"]:
+                pos_def -= symbol_use["pos"] - 1
 
-            self.code[pos_use:pos_use+4] = struct.pack("<i", pos_def)
+            self.code[real_pos:real_pos+4] = struct.pack("<i", pos_def)
         
         if not final:
             for symbol, pos_def in self.symbols_def.items():
@@ -204,7 +212,7 @@ class Assembler:
                         self.global_symbols_def[symbol] = pos_def
 
 @click.command()
-@click.argument("files", type=click.File("r"), required=True, nargs=-1)
+@click.argument("files", required=True, nargs=-1)
 @click.option("--output", "-o", type=click.File("wb"), required=True, help="Output binary to write to.")
 def run(files, output):
     with open(Path(__file__).parent / "grammar.lark", "r") as f:
@@ -212,10 +220,15 @@ def run(files, output):
 
     assembler = Assembler()
     for file in files:
-        ast = parser.parse(file.read())
-        ast = assembler.preprocess(ast)
-        assembler.assemble(ast)
-        assembler.link()
+        if file[0] == "@":
+            if file.startswith("@RELOC"):
+                assembler.pos_offset = int(file.split(":")[1], 0) - len(assembler.code)
+        else:
+            with open(file, "r") as f:
+                ast = parser.parse(f.read())
+            ast = assembler.preprocess(ast)
+            assembler.assemble(ast)
+            assembler.link()
     assembler.link(final=True)
 
     output.write(assembler.code)

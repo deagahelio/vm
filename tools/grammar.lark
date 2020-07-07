@@ -50,7 +50,7 @@ instruction: "nop"                      -> i_nop
            | "b"     register           -> i_b
            | "bt"    register           -> i_bt
            | "bf"    register           -> i_bf
-           | "call"  register           -> i_call
+           | "jal"   register           -> i_jal
            | "push"  _imm               -> i_pushi
            | "j"     _imm               -> i_ji
            | "jt"    _imm               -> i_jti
@@ -58,7 +58,7 @@ instruction: "nop"                      -> i_nop
            | "b"     _imm               -> i_bi
            | "bt"    _imm               -> i_bti
            | "bf"    _imm               -> i_bfi
-           | "call"  _imm               -> i_calli
+           | "jal"   _imm               -> i_jali
            | "cgtq"  register register  -> i_cgtq
            | "cltq"  register register  -> i_cltq
            | "ceq"   register register  -> i_ceq
@@ -66,6 +66,7 @@ instruction: "nop"                      -> i_nop
            | "cgt"   register register  -> i_cgt
            | "clt"   register register  -> i_clt
            | "mov"   _imm register      -> i_movi
+           | "bal"   register           -> i_bal
            | "cgtq"  register _imm      -> i_cgtqi
            | "cltq"  register _imm      -> i_cltqi
            | "ceq"   register _imm      -> i_ceqi
@@ -77,6 +78,7 @@ instruction: "nop"                      -> i_nop
            | "stw"   _imm _imm          -> i_stwii
            | "std"   _imm _imm          -> i_stdii
            | "ret"                      -> i_ret
+           | "bal"   _imm               -> i_bali
 label_line: "#" word ":"
 directive: ".byte"    _imm _imm?  -> d_byte
          | ".word"    _imm _imm?  -> d_word

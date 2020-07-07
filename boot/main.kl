@@ -7,9 +7,11 @@
 
 (fn void main ()
     (local uint8 id 1)
+    (local uint32 devices)
     (while (!= id 255)
         (local uint32 device (device-scan id))
         (cond (!= device 0) (
+            (set-var devices (+ devices 1))
             (switch (get device.class device)
             0x1 (
                 (set-var total-memory (get device.limit-0 device))
@@ -17,12 +19,41 @@
             0x2 (
                 (bcopy device &disk-controller (size device))
             ))
-            (device-print device)
-            (draw-string (str "-----")) (newline)
+            ;(device-print device)
+            ;(draw-string (str "-----")) (newline)
         ))
         (set-var id (+ id 1))
     )
-    (draw-string (str "Total memory: ")) (draw-int total-memory)
+
+    (newline) (draw-string (str "vm-boot")) (newline) (newline)
+    (draw-string (str "Devices detected: ")) (draw-int devices) (newline)
+    (draw-string (str "Total memory:     ")) (draw-int total-memory)
     (draw-string (str " (")) (draw-int (/ total-memory 1048576)) (draw-string (str "MiB)")) (newline)
-    (draw-int (get-8 (+ 1 (get device.base-address-0 &disk-controller))))
+
+    (local uint8 disks (get-8 (+ 1 (get device.base-address-0 &disk-controller))))
+    (cond (== 0 (get device.id &disk-controller)) (
+        (set-var color 0xFFAAAA)
+        (newline) (draw-string (str "No disk controller found.")) (newline)
+    ) (!= disks 0) (
+        (newline) (draw-string (str "Choose a device to boot from:")) (newline)
+        (local uint32 bit)
+        (while (< bit 8)
+            (cond (== 1 (& 1 (>> disks bit))) (
+                (draw-int bit) (draw-string (str ") Disk ")) (draw-int bit) (draw-string (str " ("))
+                (set-8 (+ 1 (get device.base-address-0 &disk-controller)) bit)
+                (set-8 (get device.base-address-0 &disk-controller) 4)
+                (set-8 (get device.base-address-0 &disk-controller) 8)
+                (local uint32 max-sectors (get-32 (+ 3 (get device.base-address-0 &disk-controller))))
+                (draw-int max-sectors) (draw-string (str " sectors)")) (newline)
+            ))
+            (set-var bit (+ bit 1))
+        )
+        (newline) (draw-string (str ">"))
+        ;(set-8 (+ 1 (get device.base-address-0 &disk-controller)) 1)
+        ;(set-32 0xF1201 0)
+        ;(set-8 (get device.base-address-0 &disk-controller) 1)
+    ) (true) (
+        (set-var color 0xFFAAAA)
+        (newline) (draw-string (str "No bootable devices found.")) (newline)
+    ))
 )
