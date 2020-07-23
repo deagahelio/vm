@@ -139,9 +139,9 @@
 
 (fn void draw-pixel ((uint32 x) (uint32 y))
     (local uint32 target (+ framebuffer (* 4 (+ x (* y width)))))
-    (set-8 (+ target 1) (>> (& 0xFF0000 color) 16))
-    (set-8 (+ target 2) (>> (& 0xFF00 color) 8))
-    (set-8 (+ target 3) (& 0xFF color))
+    (set-8 (+ target 2) (>> (& 0xFF0000 color) 16))
+    (set-8 (+ target 1) (>> (& 0xFF00 color) 8))
+    (set-8 target (& 0xFF color))
 )
 
 (fn void draw-character ((uint8 char))

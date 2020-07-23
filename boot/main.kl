@@ -6,7 +6,7 @@
 (static uint8 disk-controller (zero device))
 
 (fn void main ()
-    (local uint8 id 1)
+    (local uint8 id 0)
     (local uint32 devices)
     (while (!= id 255)
         (local uint32 device (device-scan id))
