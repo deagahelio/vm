@@ -1,8 +1,5 @@
 use vm::vm::Vm;
 use clap::{Arg, App, crate_version, value_t};
-use minifb::{Key, Window, WindowOptions, Scale};
-use std::thread;
-use std::sync::{Arc, Mutex, mpsc::channel};
 use std::fs;
 
 fn main() {
@@ -33,48 +30,19 @@ fn main() {
                           .get_matches();
     
     let memory_size = value_t!(matches, "memory-size", usize).unwrap_or(134217728);
-    let (width, height) = (640, 360);
-    let framebuffer = Arc::new(Mutex::new(vec![0u32; 32*1024*1024]));
-    let mut vm = Vm::new(memory_size, Some(framebuffer.clone()));
 
-    if let Some(ref bin) = matches.value_of("bios") {
-        vm.load_boot(bin).unwrap();
+    let mut vm = Vm::new(memory_size);
+
+    if let Some(ref bin) = matches.value_of("boot") {
+        vm.memory.load_boot(bin).unwrap();
     }
 
     if let Some(disks) = matches.values_of("disk") {
+        let mut disk_controller = vm.disk_controller.borrow_mut();
         for (i, path) in disks.enumerate() {
-            vm.memory.set_disk(i, Some(fs::read(path).expect("could not read disk file")));
+            disk_controller.set_disk(i, Some(fs::read(path).expect("could not read disk file")));
         }
     }
 
-    let framebuffer_copy = framebuffer.clone();
-    let (sender, receiver) = channel();
-    thread::spawn(move || {
-        let mut window = Window::new("vm", width, height, WindowOptions { scale: Scale::X2, .. WindowOptions::default() }).unwrap();
-        window.limit_update_rate(Some(std::time::Duration::from_micros(33300)));
-
-        while window.is_open() && !window.is_key_down(Key::Escape) {
-            let framebuffer = framebuffer_copy.lock().unwrap();
-            window.update_with_buffer(&framebuffer, width, height).unwrap();
-        }
-
-        sender.send(()).unwrap();
-    });
-
-    loop {
-        match vm.cycle() {
-            Ok(()) =>  {
-                //println!("OK ip={:X} opcode={:02X} regs={:?} sp={}", vm.ip, vm.memory.read_u8(vm.ip).unwrap(), &vm.registers[1..15], vm.registers[15]);
-            },
-            Err(e) => {
-                println!("ERROR {:?}", e);
-                break;
-            },
-        }
-
-        if receiver.try_recv().is_ok() {
-            println!("mem:{:?}", &vm.memory.bytes[0x200..1000+0x200]);
-            break;
-        }
-    }
+    vm.run();
 }
