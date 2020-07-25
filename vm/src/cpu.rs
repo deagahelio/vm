@@ -471,17 +471,17 @@ impl Cpu {
     }
 
     pub fn interrupt(&mut self, line: u8, error_code: Option<u8>) -> Result<(), Exception> {
-        let mut memory = self.memory.borrow_mut();
+        let bytes = &mut self.memory.borrow_mut().bytes;
 
         if self.interrupts_enabled {
             let sp = self.registers[15];
-            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(4), self.get_flags() as u32), Err(Exception::ProtectionFault));
-            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(8), sp), Err(Exception::ProtectionFault));
-            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(12), self.ip), Err(Exception::ProtectionFault));
-            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(16), error_code.unwrap_or(0) as u32), Err(Exception::ProtectionFault));
+            unwrap_or_return!(bytes.write_u32(sp.wrapping_sub(4), self.get_flags() as u32), Err(Exception::ProtectionFault));
+            unwrap_or_return!(bytes.write_u32(sp.wrapping_sub(8), sp), Err(Exception::ProtectionFault));
+            unwrap_or_return!(bytes.write_u32(sp.wrapping_sub(12), self.ip), Err(Exception::ProtectionFault));
+            unwrap_or_return!(bytes.write_u32(sp.wrapping_sub(16), error_code.unwrap_or(0) as u32), Err(Exception::ProtectionFault));
             self.registers[15] = self.registers[15].wrapping_sub(16);
 
-            self.ip = unwrap_or_return!(memory.read_u32(0xF2000 + (line as u32 * 4)), Err(Exception::ProtectionFault));
+            self.ip = unwrap_or_return!(bytes.read_u32(0xF2000 + (line as u32 * 4)), Err(Exception::ProtectionFault));
             self.user_mode = false;
             self.interrupts_enabled = false;
         }
