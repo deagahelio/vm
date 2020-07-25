@@ -5,3 +5,4 @@ pub mod device;
 pub mod monitor;
 pub mod disk_controller;
 pub mod interrupt_controller;
+pub mod keyboard;

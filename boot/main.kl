@@ -1,11 +1,14 @@
 (import "graphics.kl")
 (import "device.kl")
 (import "utils.kl")
+(import "keyboard.kl")
 
 (static uint32 total-memory)
 (static uint8 disk-controller (zero device))
 
 (fn void main ()
+    (keyboard-install-interrupt-handler)
+
     (local uint8 id 0)
     (local uint32 devices)
     (while (!= id 255)
@@ -56,4 +59,8 @@
         (set-var color 0xFFAAAA)
         (newline) (draw-string (str "No bootable devices found.")) (newline)
     ))
+
+    (set-16 0xF2041 0)
+    (set-8 0xF2040 0)
+    (asm "sti")
 )

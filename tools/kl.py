@@ -274,7 +274,7 @@ class Compiler:
 
             node.transform(f)
 
-        top_level = ["fn", "static", "array", "import", "struct"]
+        top_level = ["fn", "static", "array", "import", "import-defs", "struct"]
 
         if root:
             if node.type != "list":
@@ -366,6 +366,20 @@ class Compiler:
 
                 for symbol in {**compiler.funcs, **compiler.vars[0]}.keys():
                     self.code += f".import #{symbol}\n"
+        
+        elif node[0].value == "import-defs":
+            if len(node) == 1:
+                raise CompileError("wrong number of arguments", node)
+
+            if self.definitions_mode or self.import_mode:
+                return
+            
+            self.definitions_mode = True
+            self.import_mode = True
+            for node in node[1:]:
+                self.generate_expression(node, root=True)
+            self.definitions_mode = False
+            self.import_mode = False
 
         elif node[0].value == "fn":
             if len(node) < 4:

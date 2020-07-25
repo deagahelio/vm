@@ -34,7 +34,7 @@ fn main() {
     let mut vm = Vm::new(memory_size);
 
     if let Some(ref bin) = matches.value_of("boot") {
-        vm.memory.load_boot(bin).unwrap();
+        vm.memory.borrow_mut().load_boot(bin).unwrap();
     }
 
     if let Some(disks) = matches.values_of("disk") {

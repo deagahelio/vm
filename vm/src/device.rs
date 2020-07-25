@@ -43,6 +43,7 @@ pub trait Device {
     fn init_memory(&mut self, bytes: &mut Bytes) {}
     fn read_memory(&mut self, bytes: &mut Bytes, address: u32) -> Option<u8> { bytes.read_u8(address) }
     fn write_memory(&mut self, bytes: &mut Bytes, address: u32, value: u8) -> WriteResult { WriteResult::Write }
+    fn update_device(&mut self, bytes: &mut Bytes) {}
 }
 
 pub struct DeviceManager {

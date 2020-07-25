@@ -1,5 +1,11 @@
 use crate::device::{Device, DeviceRecord, Class, WriteResult};
 use crate::memory::Bytes;
+use crate::cpu::{Cpu, Exception};
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+
+pub type InterruptQueue = Rc<RefCell<VecDeque<(u8, Option<u8>)>>>;
 
 pub struct InterruptController {
     record: DeviceRecord,
@@ -7,6 +13,7 @@ pub struct InterruptController {
     table_address: u32,
     interrupts_enabled: bool,
     interrupts_bitmask: u16,
+    pub queue: InterruptQueue,
 }
 
 impl InterruptController {
@@ -24,7 +31,19 @@ impl InterruptController {
             table_address: address,
             interrupts_enabled: false,
             interrupts_bitmask: 0b11111111_11111111,
+            queue: Rc::new(RefCell::new(VecDeque::new())),
         }
+    }
+
+    pub fn send_interrupts(&mut self, cpu: &mut Cpu) -> Result<(), Exception> {
+        if self.interrupts_enabled {
+            for (line, error_code) in self.queue.borrow_mut().drain(..) {
+                if self.interrupts_bitmask >> line & 1 == 0 {
+                    cpu.interrupt(line, error_code)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -45,10 +64,10 @@ impl Device for InterruptController {
     fn write_memory(&mut self, bytes: &mut Bytes, address: u32, value: u8) -> WriteResult {
         match address - self.address {
             0 => {
-                self.interrupts_enabled = value & 1 == 1;
+                self.interrupts_enabled = value & 1 == 0;
             },
             1..=2 => {
-                self.interrupts_bitmask = bytes.read_u16(address + 1).unwrap();
+                self.interrupts_bitmask = bytes.read_u16(self.address + 1).unwrap();
             },
             _ => {},
         }

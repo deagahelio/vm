@@ -59,7 +59,7 @@ impl Memory {
     pub fn new(size: usize, mut devices: Vec<Rc<RefCell<dyn Device>>>) -> Self {
         let mut bytes = Bytes::new(size);
 
-        for mut device in devices.iter_mut().map(|dev| dev.borrow_mut()) {
+        for mut device in devices.iter_mut().filter_map(|dev| dev.try_borrow_mut().ok()) {
             device.init_memory(&mut bytes);
         }
 
@@ -76,7 +76,7 @@ impl Memory {
     }
 
     pub fn read_u8(&mut self, address: u32) -> Option<u8> {
-        for mut device in self.devices.iter_mut().map(|dev| dev.borrow_mut()) {
+        for mut device in self.devices.iter_mut().filter_map(|dev| dev.try_borrow_mut().ok()) {
             if device.get_memory_area().contains(&address) {
                 return device.read_memory(&mut self.bytes, address);
             }
@@ -98,7 +98,7 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, address: u32, value: u8) -> Option<u8> {
-        for mut device in self.devices.iter().map(|dev| dev.borrow_mut()) {
+        for mut device in self.devices.iter().filter_map(|dev| dev.try_borrow_mut().ok()) {
             if device.get_memory_area().contains(&address) {
                 return match device.write_memory(&mut self.bytes, address, value) {
                     WriteResult::Write => self.bytes.write_u8(address, value),

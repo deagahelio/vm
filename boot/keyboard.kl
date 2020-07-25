@@ -1,0 +1,21 @@
+(import "graphics.kl")
+
+(asm "
+    #keyboard-interrupt-handler-asm:
+        jal #keyboard-interrupt-handler
+        pop $0
+        iret
+")
+
+(import-defs
+    (static uint32 keyboard-interrupt-handler-asm)
+)
+
+(fn void keyboard-install-interrupt-handler ()
+    (set-32 0xF2004 (addr keyboard-interrupt-handler-asm))
+)
+
+(fn void keyboard-interrupt-handler ()
+    (draw-int (get-16 0xF3002)) (newline)
+    (set-8 0xF3000 1)
+)

@@ -1,4 +1,6 @@
 use crate::memory::Memory;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 macro_rules! unwrap_or_return {
     ( $e:expr, $f:expr ) => {
@@ -16,25 +18,30 @@ pub enum Exception {
 }
 
 pub struct Cpu {
+    pub memory: Rc<RefCell<Memory>>,
     pub registers: [u32; 16],
     pub ip: u32,
     pub cmp: bool,
     pub user_mode: bool,
     pub interrupts_enabled: bool,
+    pub paging_enabled: bool,
 }
 
 impl Cpu {
-    pub fn new() -> Self {
+    pub fn new(memory: Rc<RefCell<Memory>>) -> Self {
         Self {
+            memory,
             registers: [0; 16],
             ip: 0x200,
             cmp: false,
             user_mode: false,
             interrupts_enabled: false,
+            paging_enabled: false,
         }
     }
 
-    pub fn cycle(&mut self, memory: &mut Memory) -> Result<(), Exception> {
+    pub fn cycle(&mut self) -> Result<(), Exception> {
+        let mut memory = self.memory.borrow_mut();
         let opcode = unwrap_or_return!(memory.read_u8(self.ip), Err(Exception::ProtectionFault));
 
         self.ip += match opcode {
@@ -434,10 +441,65 @@ impl Cpu {
                 self.ip = self.ip.wrapping_add(unwrap_or_return!(memory.read_u32(self.ip + 1), Err(Exception::InvalidOpcode)));
                 0
             },
+            0x40 => { // SYSCALL
+                drop(memory);
+                self.interrupt(15, None)?;
+                0
+            },
+            0x41 => { // IRET
+                let sp = self.registers[15];
+                self.ip = unwrap_or_return!(memory.read_u32(sp), Err(Exception::ProtectionFault));
+                self.registers[15] = unwrap_or_return!(memory.read_u32(sp.wrapping_add(4)), Err(Exception::ProtectionFault));
+                let flags = unwrap_or_return!(memory.read_u32(sp.wrapping_add(8)), Err(Exception::ProtectionFault)) as u8;
+                drop(memory);
+                self.set_flags(flags);
+                0
+            },
+            0x42 => { // CLI
+                self.interrupts_enabled = false;
+                1
+            },
+            0x43 => { // STI
+                self.interrupts_enabled = true;
+                1
+            },
             _ => return Err(Exception::InvalidOpcode),
         };
 
         self.registers[0] = 0;
         Ok(())
+    }
+
+    pub fn interrupt(&mut self, line: u8, error_code: Option<u8>) -> Result<(), Exception> {
+        let mut memory = self.memory.borrow_mut();
+
+        if self.interrupts_enabled {
+            let sp = self.registers[15];
+            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(4), self.get_flags() as u32), Err(Exception::ProtectionFault));
+            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(8), sp), Err(Exception::ProtectionFault));
+            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(12), self.ip), Err(Exception::ProtectionFault));
+            unwrap_or_return!(memory.write_u32(sp.wrapping_sub(16), error_code.unwrap_or(0) as u32), Err(Exception::ProtectionFault));
+            self.registers[15] = self.registers[15].wrapping_sub(16);
+
+            self.ip = unwrap_or_return!(memory.read_u32(0xF2000 + (line as u32 * 4)), Err(Exception::ProtectionFault));
+            self.user_mode = false;
+            self.interrupts_enabled = false;
+        }
+
+        Ok(())
+    }
+    
+    pub fn get_flags(&self) -> u8 {
+        (self.paging_enabled     as u8) << 3 |
+        (self.cmp                as u8) << 2 |
+        (self.interrupts_enabled as u8) << 1 |
+        (self.user_mode          as u8)
+    }
+
+    pub fn set_flags(&mut self, flags: u8) {
+        self.user_mode          = flags      & 1 == 1;
+        self.interrupts_enabled = flags >> 1 & 1 == 1;
+        self.cmp                = flags >> 2 & 1 == 1;
+        self.paging_enabled     = flags >> 3 & 1 == 1;
     }
 }
