@@ -1,21 +1,29 @@
-(import "graphics.kl")
+(import "graphics.kl") (@using graphics)
+(import "utils.kl") (@using utils)
+(import "device.kl")
+
+(@namespace keyboard)
 
 (asm "
-    #keyboard-interrupt-handler-asm:
-        jal #keyboard-interrupt-handler
+    #keyboard::interrupt-handler-asm:
+        jal #keyboard::interrupt-handler
         pop $0
         iret
 ")
 
 (import-defs
-    (static uint32 keyboard-interrupt-handler-asm)
+    (static uint32 interrupt-handler-asm)
 )
 
-(fn void keyboard-install-interrupt-handler ()
-    (set-32 0xF2004 (addr keyboard-interrupt-handler-asm))
+(static uint8 keyboard (zero device::device))
+(static uint16 scan-code)
+
+(fn void init ((uint32 src))
+    (copy src &keyboard (size device::device))
+    (set-32 (+ 0xF2000 (* 4 (get device::device.interrupt-line &keyboard))) &interrupt-handler-asm)
 )
 
-(fn void keyboard-interrupt-handler ()
-    (draw-int (get-16 0xF3002)) (newline)
-    (set-8 0xF3000 1)
+(fn void interrupt-handler ()
+    (set-var scan-code (get-16 (+ 2 (get device::device.base-address-0 &keyboard))))
+    (set-8 (get device::device.base-address-0 &keyboard) 1) ; send ack
 )

@@ -1,4 +1,6 @@
-(fn void bcopy ((uint32 src) (uint32 dest) (uint32 size))
+(@namespace utils)
+
+(fn void copy ((uint32 src) (uint32 dest) (uint32 size))
     (local uint32 i)
     (while (< i size)
         (set-8 (+ dest i) (get-8 (+ src i)))

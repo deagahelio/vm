@@ -1,29 +1,34 @@
-(import "graphics.kl")
+(import "graphics.kl") (@using graphics)
 (import "device.kl")
-(import "utils.kl")
+(import "utils.kl") (@using utils)
 (import "keyboard.kl")
 
 (static uint32 total-memory)
-(static uint8 disk-controller (zero device))
+(static uint8 disk-controller (zero device::device))
+(static uint8 interrupt-controller (zero device::device))
 
 (fn void main ()
-    (keyboard-install-interrupt-handler)
-
     (local uint8 id 0)
     (local uint32 devices)
     (while (!= id 255)
-        (local uint32 device (device-scan id))
+        (local uint32 device (device::scan id))
         (cond (!= device 0) (
             (set-var devices (+ devices 1))
-            (switch (get device.class device)
-            0x1 (
-                (set-var total-memory (get device.limit-0 device))
+            (switch (get device::device.class device)
+            0x1 ( ; memory
+                (set-var total-memory (get device::device.limit-0 device))
             )
-            0x2 (
-                (bcopy device &disk-controller (size device))
+            0x2 ( ; disk controller
+                (copy device &disk-controller (size device::device))
+            )
+            0x3 ( ; interrupt controller
+                (copy device &interrupt-controller (size device::device))
+            )
+            0x11 ( ; keyboard
+                (keyboard::init device)
             ))
-            ;(device-print device)
-            ;(draw-string (str "-----")) (newline)
+            ;(device::print device)
+            ;(graphics::draw-string (str "-----")) (newline)
         ))
         (set-var id (+ id 1))
     )
@@ -33,34 +38,74 @@
     (draw-string (str "Total memory:     ")) (draw-int total-memory)
     (draw-string (str " (")) (draw-int (/ total-memory 1048576)) (draw-string (str "MiB)")) (newline)
 
-    (local uint8 disks (get-8 (+ 1 (get device.base-address-0 &disk-controller))))
-    (cond (== 0 (get device.id &disk-controller)) (
+    (local uint8 disks (get-8 (+ 1 (get device::device.base-address-0 &disk-controller))))
+    (cond (== 0 (get device::device.id &disk-controller)) (
         (set-var color 0xFFAAAA)
         (newline) (draw-string (str "No disk controller found.")) (newline)
+    ) (== 0 (get device::device.id &keyboard::keyboard)) (
+        (set-var color 0xFFAAAA)
+        (newline) (draw-string (str "No keyboard found.")) (newline)
+    ) (== 0 (get device::device.id &interrupt-controller)) (
+        (set-var color 0xFFAAAA)
+        (newline) (draw-string (str "No interrupt controller found.")) (newline)
     ) (!= disks 0) (
         (newline) (draw-string (str "Choose a device to boot from:")) (newline)
+
+        (local uint32 first-y graphics::cursor-y)
+        (local uint32 disk-count)
+
         (local uint32 bit)
         (while (< bit 8)
             (cond (== 1 (& 1 (>> disks bit))) (
-                (draw-int bit) (draw-string (str ") Disk ")) (draw-int bit) (draw-string (str " ("))
-                (set-8 (+ 1 (get device.base-address-0 &disk-controller)) bit)
-                (set-8 (get device.base-address-0 &disk-controller) 4)
-                (set-8 (get device.base-address-0 &disk-controller) 8)
-                (local uint32 max-sectors (get-32 (+ 3 (get device.base-address-0 &disk-controller))))
+                (draw-string (str "  Disk ")) (draw-int bit) (draw-string (str " ("))
+                (set-8 (+ 1 (get device::device.base-address-0 &disk-controller)) bit)
+                (set-8 (get device::device.base-address-0 &disk-controller) 4)
+                (set-8 (get device::device.base-address-0 &disk-controller) 8)
+                (local uint32 max-sectors (get-32 (+ 3 (get device::device.base-address-0 &disk-controller))))
                 (draw-int max-sectors) (draw-string (str " sectors)")) (newline)
+
+                (set-var disk-count (+ disk-count 1))
             ))
             (set-var bit (+ bit 1))
         )
-        (newline) (draw-string (str ">"))
         ;(set-8 (+ 1 (get device.base-address-0 &disk-controller)) 1)
         ;(set-32 0xF1201 0)
         ;(set-8 (get device.base-address-0 &disk-controller) 1)
+
+        (local uint32 idx)
+
+        (set-var graphics::cursor-x 0)
+        (set-var graphics::cursor-y first-y)
+        (draw-character '>)
+
+        (set-16 (+ 1 (get device::device.base-address-0 &interrupt-controller)) 0) ; unmask all interrupt lines
+        (set-8 (get device::device.base-address-0 &interrupt-controller) 0) ; enable hardware interrupts
+        (asm "sti") ; enable all interrupts
+
+        (while (true)
+            (cond (!= keyboard::scan-code 0) (
+                (switch keyboard::scan-code
+                54 ( ; up
+                    (cond (!= idx 0) (
+                        (set-var idx (- idx 1))
+                        (draw-empty-character)
+                        (set-var graphics::cursor-y (- graphics::cursor-y 8))
+                        (draw-character '>)
+                    ))
+                )
+                51 ( ; down
+                    (cond (!= idx (- disk-count 1)) (
+                        (set-var idx (+ idx 1))
+                        (draw-empty-character)
+                        (set-var graphics::cursor-y (+ graphics::cursor-y 8))
+                        (draw-character '>)
+                    ))
+                ))
+                (set-var keyboard::scan-code 0)
+            ))
+        )
     ) (true) (
         (set-var color 0xFFAAAA)
         (newline) (draw-string (str "No bootable devices found.")) (newline)
     ))
-
-    (set-16 0xF2041 0)
-    (set-8 0xF2040 0)
-    (asm "sti")
 )

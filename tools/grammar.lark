@@ -1,4 +1,4 @@
-WORD: /[a-zA-Z_\-][\w\-\.]*/
+WORD: /[a-zA-Z_\-]([\w\-\.:]*[\w\-\.])?/
 NUMBER: /\d+/
 _NEWLINE: /\r?\n/
 

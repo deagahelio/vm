@@ -35,14 +35,6 @@ TYPE_DIRECTIVES = {t: SIZE_DIRECTIVES[TYPE_SIZES[t]] for t in TYPE_SIZES.keys()}
 
 TYPES = list(TYPE_SIZES.keys()) + ["void"]
 
-def flatten(l):
-    for e in l:
-        if isinstance(e, list):
-            for e in flatten(e):
-                yield e
-        else:
-            yield e
-
 def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
@@ -181,6 +173,8 @@ class Compiler:
         self.sp_offset = 0 # Keeps track of distance from base of stack frame to store local variables
         self.directives = {
             "private": False,
+            "namespace": "",
+            "using": [],
         }
 
         self.path = path # Path to source code file
@@ -221,6 +215,15 @@ class Compiler:
 
         else:
             raise CompileError(f"cannot merge types '{l}' and '{r}'", node)
+    
+    def get_entry(self, dict, key):
+        for prefix in ["", self.directives["namespace"]] + self.directives["using"]:
+            try:
+                return dict[prefix + key], prefix + key
+            except KeyError:
+                pass
+        
+        return None, None
 
     def compile(self, ast):
         if not self.definitions_mode:
@@ -274,7 +277,7 @@ class Compiler:
 
             node.transform(f)
 
-        top_level = ["fn", "static", "array", "import", "import-defs", "struct"]
+        top_level = ["fn", "static", "import", "import-defs", "struct"]
 
         if root:
             if node.type != "list":
@@ -305,15 +308,21 @@ class Compiler:
             if addr:
                 node.value = node.value[1:]
 
-            for scope in reversed(self.vars):
-                if node.value in scope.keys():
-                    var = scope[node.value]
-
+            for i, scope in reversed(list(enumerate(self.vars))):
+                if i == 0:
+                    var, var_name = self.get_entry(scope, node.value)
+                else:
+                    try:
+                        var, var_name = scope[node.value], node.value
+                    except KeyError:
+                        var = None
+                
+                if var != None:
                     if var["global"]:
                         if not addr:
-                            self.code += f"mov #{node.value} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
+                            self.code += f"mov #{var_name} ${r+1}\nld{TYPE_DIRECTIVES[var['type']][0]} ${r+1} ${r}\n"
                         else:
-                            self.code += f"mov #{node.value} ${r}\n"
+                            self.code += f"mov #{var_name} ${r}\n"
                     else:
                         if not addr:
                             self.code += f"mov $12 ${r+1}\n"
@@ -339,6 +348,25 @@ class Compiler:
 
             if self.import_mode:
                 self.directives["private"] = True
+
+        elif node[0].value == "@namespace":
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word":
+                raise CompileError("namespace name must be word", node)
+
+            if self.definitions_mode:
+                self.directives["namespace"] = node[1].value + "::"
+        
+        elif node[0].value == "@using":
+            if len(node) != 2:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].type != "word":
+                raise CompileError("namespace name must be word", node)
+
+            self.directives["using"].append(node[1].value + "::")
 
         elif node[0].value == "import":
             if len(node) != 2:
@@ -391,11 +419,13 @@ class Compiler:
             if node[2].type != "word":
                 raise CompileError("invalid function name", node)
 
+            fn_name = self.directives["namespace"] + node[2].value
+
             if node[3].type != "list":
                 raise CompileError("third argument must be parameter list", node)
             
             if self.definitions_mode:
-                if node[2].value in self.funcs:
+                if fn_name in self.funcs:
                     raise CompileError("cannot declare function twice", node)
 
                 for arg in node[3]:
@@ -415,7 +445,7 @@ class Compiler:
                         raise CompileError("cannot define parameter twice", node)
 
                 if not self.directives["private"]:
-                    self.funcs[node[2].value] = {
+                    self.funcs[fn_name] = {
                         "node": node,
                         "type": node[1].value,
                         "args": [arg[0].value for arg in node[3]],
@@ -438,7 +468,7 @@ class Compiler:
                     }
                     arg_offset += 4
 
-                self.code += f".export #{node[2]}\n#{node[2]}:\npush $12\nmov $15 $12\n"
+                self.code += f".export #{fn_name}\n#{fn_name}:\npush $12\nmov $15 $12\n"
                 for expr in node[4:]:
                     self.generate_expression(expr, statement=True, r=r)
                 self.code += "mov $12 $15\npop $12\nret\n"
@@ -451,6 +481,8 @@ class Compiler:
 
             if node[1].type != "word":
                 raise CompileError("first argument must be struct name", node)
+
+            struct_name = self.directives["namespace"] + node[1].value
 
             if self.definitions_mode:
                 fields = []
@@ -473,7 +505,7 @@ class Compiler:
                     size += TYPE_SIZES[field[0].value]
 
                 if not self.directives["private"]:
-                    self.structs[node[1].value] = {
+                    self.structs[struct_name] = {
                         "node": node,
                         "fields": fields,
                         "size": size,
@@ -515,8 +547,17 @@ class Compiler:
 
                 self.generate_expression(block[0], r=r)
                 self.code += f"bf #__cond_{node.id}_{i}\n"
+
+                self.vars.append({})
+
                 for expr in block[1]:
                     self.generate_expression(expr, statement=True, r=r)
+                for _ in self.vars[-1]:
+                    self.code += "pop $0\n"
+                    self.sp_offset += 4
+
+                self.vars.pop()
+
                 self.code += f"b #__cond_{node.id}_end\n#__cond_{node.id}_{i}:\n"
             self.code += f"#__cond_{node.id}_end:\n"
 
@@ -536,8 +577,17 @@ class Compiler:
                 self.code += f"push ${r+1}\n"
                 self.generate_expression(block[0], r=r)
                 self.code += f"pop ${r+1}\nceq ${r} ${r+1}\nbf #__switch_{node.id}_{i}\n"
+
+                self.vars.append({})
+
                 for expr in block[1]:
                     self.generate_expression(expr, statement=True, r=r)
+                for _ in self.vars[-1]:
+                    self.code += "pop $0\n"
+                    self.sp_offset += 4
+
+                self.vars.pop()
+
                 self.code += f"b #__switch_{node.id}_end\n#__switch_{node.id}_{i}:\n"
             self.code += f"#__switch_{node.id}_end:\n"
             
@@ -551,37 +601,39 @@ class Compiler:
             if node[2].type != "word":
                 raise CompileError("invalid variable name", node)
 
+            var_name = self.directives["namespace"] + node[2].value
+
             if len(node) == 4 and node[3].type not in ("int", "list"):
                 raise CompileError("static variable must be integer or array of integers", node)
 
             if self.definitions_mode:
-                if node[2].value in self.vars[0]:
+                if var_name in self.vars[0]:
                     raise CompileError("cannot declare variable twice", node)
 
                 if not self.directives["private"]:
-                    self.vars[0][node[2].value] = {
+                    self.vars[0][var_name] = {
                         "global": True, 
                         "node": node,
                         "type": node[1].value,
-                        "length": len(node[2]) if node[2].type == "list" else 1,
+                        "length": len(node[3]) if len(node) == 4 and node[3].type == "list" else 1,
                     }
 
                 self.directives["private"] = False
 
             else:
                 if len(node) == 3:
-                    self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} 0\n"
+                    self.code += f".export #{var_name}\n#{var_name}:\n.{TYPE_DIRECTIVES[node[1].value]} 0\n"
 
                 else:
                     if node[3].type == "int":
-                        self.code += f".export #{node[2]}\n#{node[2]}:\n.{TYPE_DIRECTIVES[node[1].value]} "
+                        self.code += f".export #{var_name}\n#{var_name}:\n.{TYPE_DIRECTIVES[node[1].value]} "
                         if len(node) == 3:
                             self.code += "0\n"
                         else:
                             self.code += f"{node[3]}\n"
 
                     else:
-                        self.code += f".export #{node[2]}\n#{node[2]}:\n" 
+                        self.code += f".export #{var_name}\n#{var_name}:\n" 
 
                         for expr in node[3]:
                             if expr.type != "int":
@@ -726,7 +778,8 @@ class Compiler:
 
             [struct_name, struct_field] = node[1].value.split(".")
 
-            if struct_name not in self.structs.keys():
+            struct, struct_name = self.get_entry(self.structs, struct_name)
+            if struct == None:
                 raise CompileError("undefined struct", node)
 
             struct = self.structs[struct_name]
@@ -901,8 +954,11 @@ class Compiler:
 
             return node[1].value
 
-        elif node[0].value in self.funcs:
-            func = self.funcs[node[0].value]
+        else:
+            func, func_name = self.get_entry(self.funcs, node[0].value)
+
+            if func == None:
+                raise CompileError("undefined function", node)
 
             if len(node) - 1 != len(func["args"]):
                 raise CompileError("wrong number of arguments", node)
@@ -911,7 +967,7 @@ class Compiler:
                 type = self.generate_expression(arg, r=r)
                 self.merge_types(type, param, arg)
                 self.code += f"push ${r}\n"
-            self.code += f"jal #{node[0]}\n"
+            self.code += f"jal #{func_name}\n"
             if r != 1:
                 self.code += f"mov $1 ${r}\n"
             for _ in node[1:]:
@@ -919,17 +975,14 @@ class Compiler:
             
             return func["type"]
 
-        else:
-            raise CompileError("undefined function", node)
-
 @click.command()
 @click.argument("files", type=click.Path(exists=True), required=True, nargs=-1)
 @click.option("--comment", is_flag=True, default=False, help="Adds comment lines to the generated assembly code")
 @click.option("--type-checking", default="loose", help="Type checking mode [strict/loose/off]")
 def run(files, comment, type_checking):
-    compiler = Compiler(comment=comment, type_checking=type_checking)
-
     for file in files:
+        compiler = Compiler(comment=comment, type_checking=type_checking)
+
         with open(file, "r") as f:
             code = f.read()
             ast = parse(code)

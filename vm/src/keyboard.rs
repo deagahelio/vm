@@ -46,9 +46,9 @@ impl Device for Keyboard {
     fn update_device(&mut self, bytes: &mut Bytes) {
         if let Ok(key) = self.key_receiver.try_recv() {
             if !self.waiting {
-                self.interrupt_queue.borrow_mut().push_back((self.record.interrupt_line, Some(key as u8)));
+                self.interrupt_queue.borrow_mut().push_back((self.record.interrupt_line, None));
                 self.waiting = true;
-                bytes.write_u8(self.address + 2, key as u8);
+                bytes.write_u16(self.address + 2, key as u16);
                 bytes.write_u8(self.address, 0x02);
             }
         }

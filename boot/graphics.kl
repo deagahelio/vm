@@ -1,3 +1,5 @@
+(@namespace graphics)
+
 (static uint8 font-data (
     0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00   ; U+0000 nul
     0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00   ; U+0001
@@ -159,6 +161,22 @@
         (set-var char-y (+ char-y 1))
         (set-var char-data (+ char-data 1))
     )
+)
+
+(fn void draw-empty-character ()
+    (local uint32 old-color color)
+    (set-var color 0)
+    (local uint32 char-x)
+    (local uint32 char-y)
+    (while (< char-y 8)
+        (while (< char-x 8)
+            (draw-pixel (+ cursor-x char-x) (+ cursor-y char-y))
+            (set-var char-x (+ char-x 1))
+        )
+        (set-var char-x 0)
+        (set-var char-y (+ char-y 1))
+    )
+    (set-var color old-color)
 )
 
 (fn void draw-string ((uint32 string))

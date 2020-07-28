@@ -1,5 +1,7 @@
 (import "utils.kl")
-(import "graphics.kl")
+(import "graphics.kl") (@using graphics)
+
+(@namespace device)
 
 (struct device
     (uint8 id)
@@ -11,17 +13,17 @@
     (uint32 limit-1)
 )
 
-(fn uint32 device-scan ((uint8 id))
-    (set-8 0xF0001 id)
-    (set-8 0xF0000 0x01)
-    (while (== (get-8 0xF0000) 0x02))
-    (cond (== (get-8 0xF0000) 0x01) (
+(fn uint32 scan ((uint8 id))
+    (set-8 0xF0001 id) ; set device id
+    (set-8 0xF0000 0x01) ; send get info command
+    (while (== (get-8 0xF0000) 0x02)) ; wait until ready
+    (cond (== (get-8 0xF0000) 0x01) ( ; if device exists
         (return 0xF0001)
     ))
     (return 0)
 )
 
-(fn void device-print ((uint32 addr))
+(fn void print ((uint32 addr))
     (draw-string (str "ID:             ")) (draw-int (get device.id addr)) (newline)
     (draw-string (str "Class:          ")) (draw-int (get device.class addr)) (newline)
     (draw-string (str "Interrupt line: ")) (draw-int (get device.interrupt-line addr)) (newline)
