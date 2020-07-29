@@ -721,6 +721,9 @@ class Compiler:
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
             
+            if not statement:
+                raise CompileError("set-var cannot be used in expression", node)
+
             if node[1].type != "word":
                 raise CompileError("first argument must be variable name", node)
 
@@ -736,6 +739,9 @@ class Compiler:
         elif node[0].value in ("set-8", "set-16", "set-32"):
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
+
+            if not statement:
+                raise CompileError(node[0].value + " cannot be used in expression", node)
 
             size = {
                 "set-8": "b",
@@ -772,6 +778,9 @@ class Compiler:
         elif node[0].value in ("get", "set"):
             if (node[0].value == "get" and len(node) != 3) or (node[0].value == "set" and len(node) != 4):
                 raise CompileError("wrong number of arguments", node)
+
+            if node[0].value == "set" and not statement:
+                raise CompileError("set cannot be used in expression", node)
 
             if node[1].type != "word" or node[1].value.count(".") != 1:
                 raise CompileError("first argument must be struct field", node)
@@ -866,7 +875,7 @@ class Compiler:
 
             self.code += {"true": "ceq", "false": "cnq"}[node[0].value] + " $0 $0\n"
         
-        elif node[0].value == "elem-var":
+        elif node[0].value == "elem-var": # TODO: do bounds checking!
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
 
@@ -918,10 +927,12 @@ class Compiler:
             if node[1].type != "word":
                 raise CompileError("first argument must be variable name", node)
 
-            if node[1].value not in self.vars[0]:
+            var, var_name = self.get_entry(self.vars[0], node[1].value)
+
+            if var == None:
                 raise CompileError("undefined static variable", node)
 
-            self.code += f"mov {self.vars[0][node[1].value]['length']} ${r}\n"
+            self.code += f"mov {var['length']} ${r}\n"
 
             return "uint32"
 
@@ -936,7 +947,7 @@ class Compiler:
 
                     self.code += "".join([chr(val.value) for val in arg.value[:-1]]) + "\n"
 
-        elif node[0].value == "data":
+        elif node[0].value == "data": # TODO: return address to data instead?
             if len(node) != 3:
                 raise CompileError("wrong number of arguments", node)
             
