@@ -277,7 +277,7 @@ class Compiler:
 
             node.transform(f)
 
-        top_level = ["fn", "static", "import", "import-defs", "struct"]
+        top_level = ["fn", "static", "import", "import-defs", "struct", "enum"]
 
         if root:
             if node.type != "list":
@@ -513,6 +513,64 @@ class Compiler:
 
                 self.directives["private"] = False
         
+        elif node[0].value == "enum":
+            if len(node) <= 3:
+                raise CompileError("wrong number of arguments", node)
+
+            if node[1].value not in TYPES:
+                raise CompileError("first argument must be enum type", node)
+
+            if node[2].type != "word":
+                raise CompileError("second argument must be enum name", node)
+            
+            enum_name = self.directives["namespace"] + node[2].value
+
+            if self.definitions_mode:
+                element_value = 0
+                for element in node[3:]:
+                    if element.type == "word":
+                        element_name = element.value
+                    elif element.type == "list":
+                        if len(element) != 2:
+                            raise CompileError("wrong number of arguments", node)
+
+                        if element[0].type != "word":
+                            raise CompileError("first argument of enum element must be word", node)
+                        
+                        if element[1].type != "int":
+                            raise CompileError("second argument of enum element must be int", node)
+
+                        element_name = element[0].value
+                        element_value = element[1].value
+                    else:
+                        raise CompileError("enum element must be word or list", node)
+
+                    if not self.directives["private"]:
+                        self.vars[0][enum_name + "::" + element_name] = {
+                            "global": True,
+                            "node": node,
+                            "type": node[1].value,
+                            "length": 1,
+                        }
+                    
+                    element_value += 1
+
+                self.directives["private"] = False
+            else:
+                element_value = 0
+                for element in node[3:]:
+                    if element.type == "word":
+                        element_name = element.value
+                    elif element.type == "list":
+                        element_name = element[0].value
+                        element_value = element[1].value
+                    
+                    element_name = enum_name + "::" + element_name
+
+                    self.code += f".export #{element_name}\n#{element_name}:\n.{TYPE_DIRECTIVES[node[1].value]} {element_value}\n"
+
+                    element_value += 1
+        
         elif node[0].value == "while":
             if len(node) == 1:
                 raise CompileError("wrong number of arguments", node)
@@ -612,7 +670,7 @@ class Compiler:
 
                 if not self.directives["private"]:
                     self.vars[0][var_name] = {
-                        "global": True, 
+                        "global": True,
                         "node": node,
                         "type": node[1].value,
                         "length": len(node[3]) if len(node) == 4 and node[3].type == "list" else 1,
