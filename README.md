@@ -16,6 +16,10 @@ A compiler for a low-level, lisp-like syntax language named KL, designed to be e
 
 A work-in-progress C compiler. Only basic features are implemented. Not in active development.
 
+## `vmz/`
+
+A new multithreaded virtual machine written in Zig. Includes full CPU and monitor emulation, other features are still work-in-progress. It is significantly faster than the previous implementation (up to 10x faster).
+
 ## `vm/`
 
-A basic virtual machine. Includes a simple framebuffer implementation.
+Previous virtual machine written in Rust. Not in active development.

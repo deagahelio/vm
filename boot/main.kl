@@ -54,23 +54,23 @@
         (local uint32 first-y graphics::cursor-y)
         (local uint32 disk-count)
 
+        (local uint32 disk-controller-address (get device::device.base-address-0 &disk-controller))
+        (local uint32 disk-sector-address (get device::device.base-address-1 &disk-controller))
+        (local uint32 interrupt-controller-address (get device::device.base-address-0 &interrupt-controller))
+
         (local uint32 bit)
         (while (< bit 8)
             (cond (== 1 (& 1 (>> disks bit))) (
                 (draw-string (str "  Disk ")) (draw-int bit) (draw-string (str " ("))
-                (set-8 (+ 1 (get device::device.base-address-0 &disk-controller)) bit)
-                (set-8 (get device::device.base-address-0 &disk-controller) 4)
-                (set-8 (get device::device.base-address-0 &disk-controller) 8)
-                (local uint32 max-sectors (get-32 (+ 3 (get device::device.base-address-0 &disk-controller))))
-                (draw-int max-sectors) (draw-string (str " sectors)")) (newline)
+                (set-8 (+ 1 disk-controller-address) bit) ; input disk idx
+                (set-8 disk-controller-address 4) ; select disk
+                (set-8 disk-controller-address 8) ; get sector count
+                (draw-int (get-32 (+ 3 disk-controller-address))) (draw-string (str " sectors)")) (newline)
 
                 (set-var disk-count (+ disk-count 1))
             ))
             (set-var bit (+ bit 1))
         )
-        ;(set-8 (+ 1 (get device.base-address-0 &disk-controller)) 1)
-        ;(set-32 0xF1201 0)
-        ;(set-8 (get device.base-address-0 &disk-controller) 1)
 
         (local uint32 idx)
 
@@ -78,14 +78,14 @@
         (set-var graphics::cursor-y first-y)
         (draw-character '>)
 
-        (set-16 (+ 1 (get device::device.base-address-0 &interrupt-controller)) 0) ; unmask all interrupt lines
-        (set-8 (get device::device.base-address-0 &interrupt-controller) 0) ; enable hardware interrupts
+        (set-16 (+ 1 interrupt-controller-address) 0) ; unmask all interrupt lines
+        (set-8 interrupt-controller-address 0) ; enable hardware interrupts
         (asm "sti") ; enable all interrupts
 
         (while (true)
             (cond (!= keyboard::scan-code 0) (
                 (switch keyboard::scan-code
-                54 ( ; up
+                keyboard::key::up (
                     (cond (!= idx 0) (
                         (set-var idx (- idx 1))
                         (draw-empty-character)
@@ -93,13 +93,23 @@
                         (draw-character '>)
                     ))
                 )
-                51 ( ; down
+                keyboard::key::down (
                     (cond (!= idx (- disk-count 1)) (
                         (set-var idx (+ idx 1))
                         (draw-empty-character)
                         (set-var graphics::cursor-y (+ graphics::cursor-y 8))
                         (draw-character '>)
                     ))
+                )
+                keyboard::key::enter (
+                    (asm "cli") ; disable all interrupts
+                    (set-8 (+ 1 disk-controller-address) idx) ; input disk idx
+                    (set-8 disk-controller-address 4) ; select disk
+                    (set-32 (+ 1 disk-controller-address) 0) ; sector 0
+                    (set-8 disk-controller-address 1) ; read sector
+                    (draw-empty-screen)
+                    (copy disk-sector-address 0 512)
+                    (asm "j 0")
                 ))
                 (set-var keyboard::scan-code 0)
             ))

@@ -1,9 +1,9 @@
 .import #main
 
 mov #stack $15
-jal #main
+call #main
 #hang:
-    b #hang
+    j #hang
 
 .dword 0 100
 #stack:

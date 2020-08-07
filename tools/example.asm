@@ -7,7 +7,7 @@ mov 2 $4 ; Loop counter
 push $1 ; Push computed numbers to stack
 push $2
 
-loop:
+#loop:
     mov $2 $3 ; Use r3 to store next number temporarily
     add $1 $3
     push $3
@@ -15,12 +15,14 @@ loop:
     mov $3 $2
     add 1 $4 ; Update counter, check if finished
     ceq $4 count
-    bf #loop
+    jf #loop
 
 stb 0xFF 0x100000
 
-hang:
+#hang:
     j #hang ; Infinte loop
 
 .dword 0 10 ; Allocate some space for the stack
-stack:
+#stack:
+
+.byte 0 512

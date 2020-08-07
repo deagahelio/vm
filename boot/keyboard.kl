@@ -6,7 +6,7 @@
 
 (asm "
     #keyboard::interrupt-handler-asm:
-        jal #keyboard::interrupt-handler
+        call #keyboard::interrupt-handler
         pop $0
         iret
 ")
@@ -17,6 +17,20 @@
 
 (static uint8 keyboard (zero device::device))
 (static uint16 scan-code)
+
+(enum uint8 key
+    key-0 key-1 key-2 key-3 key-4 key-5 key-6 key-7 key-8 key-9
+    a b c d e f g h i j k l m n o p q r s t u v w x y z
+    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 
+    down left right up
+    apostrophe backquote backslash comma equal left-bracket minus
+    period right-bracket semicolon slash backspace delete end enter
+    escape home insert menu page-down page-up pause space tab num-lock
+    caps-lock scroll-lock left-shift right-shift left-ctrl right-ctrl
+    numpad-0 numpad-1 numpad-2 numpad-3 numpad-4 numpad-5 numpad-6 numpad-7 numpad-8 numpad-9
+    numpad-dot numpad-slash numpad-asterisk numpad-minus numpad-plus numpad-enter
+    left-alt right-alt left-super right-super unknown
+)
 
 (fn void init ((uint32 src))
     (copy src &keyboard (size device::device))

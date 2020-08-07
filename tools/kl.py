@@ -582,13 +582,13 @@ class Compiler:
 
             self.code += f"#__while_{node.id}:\n"
             self.generate_expression(node[1], r=r)
-            self.code += f"bf #__while_{node.id}_end\n"
+            self.code += f"jf #__while_{node.id}_end\n"
             for expr in node[2:]:
                 self.generate_expression(expr, statement=True, r=r)
             for _ in self.vars[-1]:
                 self.code += "pop $0\n"
                 self.sp_offset += 4
-            self.code += f"b #__while_{node.id}\n#__while_{node.id}_end:\n"
+            self.code += f"j #__while_{node.id}\n#__while_{node.id}_end:\n"
 
             self.vars.pop()
         
@@ -604,7 +604,7 @@ class Compiler:
                     raise CompileError("cond branch cannot be empty", node)
 
                 self.generate_expression(block[0], r=r)
-                self.code += f"bf #__cond_{node.id}_{i}\n"
+                self.code += f"jf #__cond_{node.id}_{i}\n"
 
                 self.vars.append({})
 
@@ -616,7 +616,7 @@ class Compiler:
 
                 self.vars.pop()
 
-                self.code += f"b #__cond_{node.id}_end\n#__cond_{node.id}_{i}:\n"
+                self.code += f"j #__cond_{node.id}_end\n#__cond_{node.id}_{i}:\n"
             self.code += f"#__cond_{node.id}_end:\n"
 
         elif node[0].value == "switch":
@@ -634,7 +634,7 @@ class Compiler:
 
                 self.code += f"push ${r+1}\n"
                 self.generate_expression(block[0], r=r)
-                self.code += f"pop ${r+1}\nceq ${r} ${r+1}\nbf #__switch_{node.id}_{i}\n"
+                self.code += f"pop ${r+1}\nceq ${r} ${r+1}\njf #__switch_{node.id}_{i}\n"
 
                 self.vars.append({})
 
@@ -646,7 +646,7 @@ class Compiler:
 
                 self.vars.pop()
 
-                self.code += f"b #__switch_{node.id}_end\n#__switch_{node.id}_{i}:\n"
+                self.code += f"j #__switch_{node.id}_end\n#__switch_{node.id}_{i}:\n"
             self.code += f"#__switch_{node.id}_end:\n"
             
         elif node[0].value == "static":
@@ -923,7 +923,7 @@ class Compiler:
                 
             if len(node) == 2:
                 self.generate_expression(node[1], r=r)
-            self.code += f"mov $0 ${r}\nbf #__bool_{node.id}_1\nmov 1 ${r}\n#__bool_{node.id}_1:\n"
+            self.code += f"mov $0 ${r}\njf #__bool_{node.id}_1\nmov 1 ${r}\n#__bool_{node.id}_1:\n"
 
             return "uint8"
 
@@ -1036,7 +1036,7 @@ class Compiler:
                 type = self.generate_expression(arg, r=r)
                 self.merge_types(type, param, arg)
                 self.code += f"push ${r}\n"
-            self.code += f"jal #{func_name}\n"
+            self.code += f"call #{func_name}\n"
             if r != 1:
                 self.code += f"mov $1 ${r}\n"
             for _ in node[1:]:

@@ -3,3 +3,4 @@ vm/target
 *.code-workspace
 **/*.bin
 **/*.out
+vmz/*.a

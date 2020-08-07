@@ -42,18 +42,12 @@ INSTRUCTIONS = {
     "j":       {"operands": "r",  "opcode": b"\x20\x30"},
     "jt":      {"operands": "r",  "opcode": b"\x20\x40"},
     "jf":      {"operands": "r",  "opcode": b"\x20\x50"},
-    "b":       {"operands": "r",  "opcode": b"\x20\x60"},
-    "bt":      {"operands": "r",  "opcode": b"\x20\x70"},
-    "bf":      {"operands": "r",  "opcode": b"\x20\x80"},
-    "jal":     {"operands": "r",  "opcode": b"\x20\x90"},
+    "call":    {"operands": "r",  "opcode": b"\x20\x90"},
     "pushi":   {"operands": "i",  "opcode": b"\x21"},
     "ji":      {"operands": "i",  "opcode": b"\x23"},
     "jti":     {"operands": "i",  "opcode": b"\x24"},
     "jfi":     {"operands": "i",  "opcode": b"\x25"},
-    "bi":      {"operands": "i",  "opcode": b"\x26"},
-    "bti":     {"operands": "i",  "opcode": b"\x27"},
-    "bfi":     {"operands": "i",  "opcode": b"\x28"},
-    "jali":    {"operands": "i",  "opcode": b"\x29"},
+    "calli":   {"operands": "i",  "opcode": b"\x29"},
     "cgtq":    {"operands": "rr", "opcode": b"\x2A"},
     "cltq":    {"operands": "rr", "opcode": b"\x2B"},
     "ceq":     {"operands": "rr", "opcode": b"\x2C"},
@@ -73,14 +67,17 @@ INSTRUCTIONS = {
     "stwii":   {"operands": "ii", "opcode": b"\x33"},
     "stdii":   {"operands": "ii", "opcode": b"\x34"},
     "ret":     {"operands": "",   "opcode": b"\x35"},
-    "bali":    {"operands": "i",  "opcode": b"\x36"},
     "syscall": {"operands": "",   "opcode": b"\x40"},
     "iret":    {"operands": "",   "opcode": b"\x41"},
     "cli":     {"operands": "",   "opcode": b"\x42"},
     "sti":     {"operands": "",   "opcode": b"\x43"},
 }
 
+def lark_tree_getitem(self, index, value):
+    self.children[index] = value
+
 lark.Tree.__getitem__ = lambda self, index: self.children[index]
+lark.Tree.__setitem__ = lark_tree_getitem
 
 class Transfromer(lark.Transformer):
     def __init__(self, definitions):
@@ -91,6 +88,9 @@ class Transfromer(lark.Transformer):
             return self.definitions[node[0].value]
         except KeyError:
             return node
+
+with open(Path(__file__).parent / "grammar.lark", "r") as f:
+    parser = lark.Lark(f.read(), start="program", parser="lalr")
 
 class Assembler:
     def __init__(self):
@@ -104,7 +104,7 @@ class Assembler:
         self.to_export = []
 
         self.pos_offset = 0
-    
+
     def preprocess(self, ast):
         self.symbols_def = {}
         self.symbols_use = {}
@@ -120,7 +120,7 @@ class Assembler:
                 definitions[node[0][0].value] = node[1]
         return Transfromer(definitions).transform(ast)
 
-    def read_imm(self, node, is_branch=False):
+    def read_imm(self, node):
         if node.data == "number":
             return int(node[0])
         elif node.data == "hex_number":
@@ -134,7 +134,6 @@ class Assembler:
             self.symbols_use[len(self.code)] = {
                 "pos": len(self.code) + self.pos_offset,
                 "symbol": node[0],
-                "is_branch": is_branch,
             }
             # Set a temporary value
             return 0xFFFFFFFF
@@ -166,7 +165,7 @@ class Assembler:
                     r1 = int(node[0][0])
                     self.code[-1] = self.code[-1] | r1
                 elif instruction["operands"] == "i":
-                    imm = self.read_imm(node[0], is_branch=node.data in ("i_bi", "i_bti", "i_bfi", "i_bali"))
+                    imm = self.read_imm(node[0])
                     self.code += struct.pack("<I", imm)
                 elif instruction["operands"] == "ii":
                     imm1 = self.read_imm(node[0])
@@ -201,9 +200,6 @@ class Assembler:
                 click.echo(f"ERROR: unresolved symbol '{symbol_use['symbol']}'", err=True)
                 continue
 
-            if symbol_use["is_branch"]:
-                pos_def -= symbol_use["pos"] - 1
-
             self.code[real_pos:real_pos+4] = struct.pack("<i", pos_def)
         
         if not final:
@@ -219,15 +215,14 @@ class Assembler:
 @click.argument("files", required=True, nargs=-1)
 @click.option("--output", "-o", type=click.File("wb"), required=True, help="Output binary to write to.")
 def run(files, output):
-    with open(Path(__file__).parent / "grammar.lark", "r") as f:
-        parser = lark.Lark(f.read(), start="program", parser="lalr")
-
     assembler = Assembler()
     for file in files:
         if file[0] == "@":
             if file.startswith("@RELOC"):
                 assembler.pos_offset = int(file.split(":")[1], 0) - len(assembler.code)
+                print(f"Relocating following files to {file.split(':')[1]}")
         else:
+            print(f"Assembling {file}")
             with open(file, "r") as f:
                 ast = parser.parse(f.read())
             ast = assembler.preprocess(ast)
